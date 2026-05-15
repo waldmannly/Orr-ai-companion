@@ -3,7 +3,7 @@ import * as path from 'path';
 import { Config } from '../config';
 import {
   getAllSessions, getSession, getSessionEvents, getRecentEvents,
-  getAlerts, acknowledgeAlert, getMemoryOps, getStats, getProjectStats, getLiveEvents,
+  getAlerts, acknowledgeAlert, getMemoryOps, getStats, getProjectStats, getLiveEvents, getAgentStats,
 } from '../storage/db';
 
 export function createDashboardServer(config: Config): express.Express {
@@ -67,6 +67,11 @@ export function createDashboardServer(config: Config): express.Express {
     if (isNaN(id)) return res.status(400).json({ error: 'Invalid alert ID' });
     acknowledgeAlert(id);
     res.json({ ok: true });
+  });
+
+  // Agent stats
+  app.get('/api/sessions/:id/agents', (req, res) => {
+    res.json(getAgentStats(req.params.id));
   });
 
   // Memory

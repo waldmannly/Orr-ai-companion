@@ -263,3 +263,11 @@ export function getLiveEvents(since: string): TrackerEvent[] {
   const rows = db.prepare('SELECT * FROM events WHERE timestamp > ? ORDER BY timestamp ASC').all(since) as Array<Record<string, unknown>>;
   return rows.map(hydrateEvent);
 }
+
+export function getAgentStats(sessionId: string): Array<{ agent_id: string; event_count: number; first_seen: string; last_seen: string }> {
+  return db.prepare(`
+    SELECT agent_id, COUNT(*) as event_count, MIN(timestamp) as first_seen, MAX(timestamp) as last_seen
+    FROM events WHERE session_id = ? AND agent_id != 'main' AND agent_id != 'user' AND agent_id != 'system' AND agent_id != 'assistant'
+    GROUP BY agent_id ORDER BY first_seen ASC
+  `).all(sessionId) as Array<{ agent_id: string; event_count: number; first_seen: string; last_seen: string }>;
+}

@@ -234,6 +234,65 @@
   }
   .tl-item.expanded .tl-detail { display: block; }
 
+  /* ── Sub-agent nesting ───────────────────────────── */
+  .tl-item.subagent {
+    margin-left: 28px;
+    border-left: 3px solid var(--purple);
+    background: rgba(188,140,255,.03);
+  }
+  .tl-item.subagent::before { border-color: var(--purple); background: var(--purple); }
+  .tl-item.subagent:hover { border-color: var(--purple); background: rgba(188,140,255,.06); }
+  .agent-badge {
+    font-size: .72rem;
+    padding: 3px 8px;
+    border-radius: 5px;
+    background: rgba(188,140,255,.12);
+    color: var(--purple);
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .agent-scope-header {
+    margin-left: 28px;
+    padding: 8px 14px;
+    margin-bottom: 4px;
+    font-size: .76rem;
+    font-weight: 600;
+    color: var(--purple);
+    background: rgba(188,140,255,.06);
+    border: 1px solid rgba(188,140,255,.15);
+    border-left: 3px solid var(--purple);
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .agent-scope-header .agent-event-count {
+    font-weight: 400;
+    color: var(--text-dim);
+    font-size: .72rem;
+  }
+  .agent-stats-bar {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 10px 0;
+  }
+  .agent-stat-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    background: rgba(188,140,255,.08);
+    border: 1px solid rgba(188,140,255,.12);
+    border-radius: 6px;
+    font-size: .76rem;
+    color: var(--purple);
+  }
+  .agent-stat-chip .agent-chip-count {
+    font-weight: 600;
+    color: var(--text);
+  }
+
   /* ── Session List ────────────────────────────────── */
   .session-item {
     display: flex;
@@ -555,6 +614,7 @@
         </div>
         <span id="tlAlertBadge" class="badge badge-danger"></span>
       </div>
+      <div id="tlAgentStats"></div>
       <div class="filter-bar">
         <input class="filter-input" placeholder="Filter events..." type="text" id="timelineSearch">
         <button class="filter-btn" id="riskFilterBtn" onclick="toggleRiskFilter()">⚡ Risk</button>
@@ -894,13 +954,15 @@ async function loadTimeline(sessionId) {
     const events = await api('/api/events/recent?limit=200');
     state.timelineEvents = events || [];
     document.getElementById('timelineHeader').style.display = 'none';
+    document.getElementById('tlAgentStats').innerHTML = '';
     renderTimeline();
     return;
   }
   state.selectedSessionId = sessionId;
-  const [session, events] = await Promise.all([
+  const [session, events, agents] = await Promise.all([
     api(`/api/sessions/${sessionId}`),
     api(`/api/sessions/${sessionId}/events?limit=500`),
+    api(`/api/sessions/${sessionId}/agents`),
   ]);
   state.timelineEvents = events || [];
 
@@ -918,6 +980,15 @@ async function loadTimeline(sessionId) {
       badge.style.display = 'none';
     }
   }
+  // Show agent breakdown if sub-agents exist
+  const agentStatsEl = document.getElementById('tlAgentStats');
+  if (agents && agents.length > 0) {
+    agentStatsEl.innerHTML = `<div class="agent-stats-bar">${agents.map(a =>
+      `<div class="agent-stat-chip">🤖 ${esc(a.agent_id.replace(/^sub:/, ''))} <span class="agent-chip-count">${a.event_count}</span></div>`
+    ).join('')}</div>`;
+  } else {
+    agentStatsEl.innerHTML = '';
+  }
   renderTimeline();
 }
 
@@ -929,6 +1000,7 @@ function renderTimeline() {
   if (searchQ) events = events.filter(e =>
     (e.summary || '').toLowerCase().includes(searchQ) ||
     (e.tool_name || '').toLowerCase().includes(searchQ) ||
+    (e.agent_id || '').toLowerCase().includes(searchQ) ||
     (e.file_paths || []).some(f => f.toLowerCase().includes(searchQ))
   );
 
@@ -937,15 +1009,41 @@ function renderTimeline() {
     return;
   }
 
-  document.getElementById('timelineContent').innerHTML = events.map(e => {
+  // Build agent scope headers: track which agent scopes are active
+  const html = [];
+  let currentAgent = null;
+  let agentEventCount = 0;
+
+  for (let i = 0; i < events.length; i++) {
+    const e = events[i];
+    const isSubagent = e.agent_id && e.agent_id.startsWith('sub:');
+    const agentName = isSubagent ? e.agent_id.replace(/^sub:/, '') : null;
+
+    // Detect scope transitions
+    if (isSubagent && currentAgent !== e.agent_id) {
+      // Close previous scope if open
+      if (currentAgent) {
+        // previous scope ended
+      }
+      // Count events in this agent scope
+      agentEventCount = 0;
+      for (let j = i; j < events.length; j++) {
+        if (events[j].agent_id === e.agent_id) agentEventCount++;
+        else if (!events[j].agent_id?.startsWith('sub:') || events[j].agent_id !== e.agent_id) break;
+      }
+      currentAgent = e.agent_id;
+      html.push(`<div class="agent-scope-header">🤖 ${esc(agentName)} <span class="agent-event-count">${agentEventCount} event${agentEventCount !== 1 ? 's' : ''}</span></div>`);
+    } else if (!isSubagent && currentAgent) {
+      currentAgent = null;
+    }
+
     const files = (e.file_paths || []).filter(f => f);
     const fileHtml = files.map(f => `<span class="tl-file">${esc(f.split(/[\\/]/).pop())}</span>`).join('');
     const detail = buildDetail(e);
-    const isSubagent = e.agent_id && e.agent_id.startsWith('sub:');
-    const agentBadge = isSubagent ? `<span style="font-size:.72rem;padding:3px 8px;border-radius:5px;background:rgba(188,140,255,.12);color:var(--purple);font-weight:500;">🤖 ${esc(e.agent_id)}</span>` : '';
+    const agentBadge = isSubagent ? `<span class="agent-badge">🤖 ${esc(e.agent_id)}</span>` : '';
     const subagentDetail = e.event_type === 'subagent_spawn' && e.parameters ? buildSubagentDetail(e.parameters) : '';
-    return `
-      <div class="tl-item risk-${e.risk_level}" onclick="this.classList.toggle('expanded')">
+    html.push(`
+      <div class="tl-item${isSubagent ? ' subagent' : ''} risk-${e.risk_level}" onclick="this.classList.toggle('expanded')">
         <div class="tl-time">${fmtTime(e.timestamp)}</div>
         <div class="tl-summary"><span class="icon">${icon(e.event_type)}</span> ${esc(e.summary)}</div>
         <div class="tl-meta">
@@ -956,15 +1054,17 @@ function renderTimeline() {
         </div>
         ${detail || subagentDetail ? `<div class="tl-detail">${esc(detail)}${subagentDetail}</div>` : ''}
       </div>
-    `;
-  }).join('');
+    `);
+  }
+
+  document.getElementById('timelineContent').innerHTML = html.join('');
 }
 
 function buildDetail(e) {
   let parts = [`type: ${e.event_type}`];
   if (e.tool_name) parts.push(`tool: ${e.tool_name}`);
-  if (e.agent_id && e.agent_id.startsWith('sub:')) parts.push(`agent: ${e.agent_id}`);
-  if (e.parent_agent_id) parts.push(`parent: ${e.parent_agent_id.substring(0, 12)}...`);
+  if (e.agent_id && e.agent_id !== 'main') parts.push(`agent: ${e.agent_id}`);
+  if (e.parent_agent_id) parts.push(`parent: ${e.parent_agent_id}`);
   if (e.command) parts.push(`command: ${e.command}`);
   if (e.file_paths?.length) parts.push(`files: ${e.file_paths.join(', ')}`);
   if (e.duration_ms) parts.push(`duration: ${e.duration_ms}ms`);

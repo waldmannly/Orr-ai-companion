@@ -26,7 +26,7 @@ const {
   initDb, getDb, upsertSession, getSession, getAllSessions,
   insertEvent, getSessionEvents, getRecentEvents, getLiveEvents,
   insertAlert, getAlerts, acknowledgeAlert,
-  insertMemoryOp, getMemoryOps, getStats, getProjectStats
+  insertMemoryOp, getMemoryOps, getStats, getProjectStats, getAgentStats
 } = dbMod;
 
 const providersMod = await import('../dist/providers/index.js');
@@ -874,6 +874,40 @@ test('getRecentEvents returns events', () => {
 test('getLiveEvents returns events since timestamp', () => {
   const events = getLiveEvents('1970-01-01T00:00:00Z');
   assert.ok(events.length > 0);
+});
+
+test('getAgentStats returns empty for session with no sub-agents', () => {
+  const stats = getAgentStats('test-s1');
+  // test-s1 events all have agent_id='main', so no sub-agent stats
+  assert.ok(Array.isArray(stats));
+});
+
+test('getAgentStats returns sub-agent breakdown', () => {
+  // Insert events with sub-agent identity
+  const sid = 'test-agent-session';
+  upsertSession({ id: sid, source_tool: 'vscode-copilot', started_at: '2025-01-01T00:00:00Z',
+    project_name: 'agent-test', workspace: '/tmp', ended_at: null, total_events: 4, danger_count: 0, warn_count: 0 });
+  insertEvent({ session_id: sid, timestamp: '2025-01-01T00:01:00Z', agent_id: 'sub:Explore',
+    parent_agent_id: 'main', event_type: 'file_read', tool_name: 'read_file', risk_level: 'info',
+    summary: 'Read file in sub-agent', file_paths: ['/tmp/a.ts'], command: null, parameters: null, duration_ms: null, raw_log: '{}', source_tool: 'vscode-copilot' });
+  insertEvent({ session_id: sid, timestamp: '2025-01-01T00:01:01Z', agent_id: 'sub:Explore',
+    parent_agent_id: 'main', event_type: 'search', tool_name: 'grep', risk_level: 'info',
+    summary: 'Search in sub-agent', file_paths: [], command: null, parameters: null, duration_ms: null, raw_log: '{}', source_tool: 'vscode-copilot' });
+  insertEvent({ session_id: sid, timestamp: '2025-01-01T00:02:00Z', agent_id: 'sub:Helper',
+    parent_agent_id: 'main', event_type: 'file_write', tool_name: 'write_file', risk_level: 'watch',
+    summary: 'Write in helper agent', file_paths: ['/tmp/b.ts'], command: null, parameters: null, duration_ms: null, raw_log: '{}', source_tool: 'vscode-copilot' });
+  insertEvent({ session_id: sid, timestamp: '2025-01-01T00:03:00Z', agent_id: 'main',
+    parent_agent_id: null, event_type: 'file_read', tool_name: 'read_file', risk_level: 'info',
+    summary: 'Main agent read', file_paths: ['/tmp/c.ts'], command: null, parameters: null, duration_ms: null, raw_log: '{}', source_tool: 'vscode-copilot' });
+
+  const stats = getAgentStats(sid);
+  assert.equal(stats.length, 2); // sub:Explore and sub:Helper
+  const explore = stats.find(s => s.agent_id === 'sub:Explore');
+  const helper = stats.find(s => s.agent_id === 'sub:Helper');
+  assert.ok(explore);
+  assert.equal(explore.event_count, 2);
+  assert.ok(helper);
+  assert.equal(helper.event_count, 1);
 });
 
 test('insertAlert stores alert', () => {
@@ -2045,6 +2079,20 @@ await testAsync('GET /api/events/live returns events', async () => {
 await testAsync('GET /api/events/live?since= uses provided time', async () => {
   const { data } = await fetchJson('/api/events/live?since=1970-01-01T00:00:00Z');
   assert.ok(data.length > 0);
+});
+
+await testAsync('GET /api/sessions/:id/agents returns agent breakdown', async () => {
+  const { status, data } = await fetchJson('/api/sessions/test-agent-session/agents');
+  assert.equal(status, 200);
+  assert.ok(Array.isArray(data));
+  assert.equal(data.length, 2); // sub:Explore and sub:Helper
+  assert.ok(data.some(a => a.agent_id === 'sub:Explore'));
+  assert.ok(data.some(a => a.agent_id === 'sub:Helper'));
+});
+
+await testAsync('GET /api/sessions/:id/agents returns empty for no sub-agents', async () => {
+  const { data } = await fetchJson('/api/sessions/test-s1/agents');
+  assert.ok(Array.isArray(data));
 });
 
 await testAsync('GET /api/alerts returns alerts', async () => {
