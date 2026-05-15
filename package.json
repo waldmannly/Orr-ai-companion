@@ -9,7 +9,10 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "tsc && node dist/index.js"
+    "dev": "tsc && node dist/index.js",
+    "test": "node tests/ui-test.mjs",
+    "test:unit": "c8 --src dist --include dist/**/*.js node tests/unit-test.mjs",
+    "test:coverage": "c8 --src dist --include dist/**/*.js --reporter text --reporter html node tests/unit-test.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^11.0.0",
@@ -20,6 +23,7 @@
     "@types/better-sqlite3": "^7.6.12",
     "@types/express": "^5.0.0",
     "@types/node": "^22.0.0",
+    "c8": "^11.0.0",
     "typescript": "^5.7.0"
   }
 }

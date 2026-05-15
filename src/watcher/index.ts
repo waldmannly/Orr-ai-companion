@@ -102,7 +102,6 @@ export class Watcher {
 
     // Ensure source_tool is set
     event.source_tool = event.source_tool || provider.id;
-    if (!event) return;
 
     // Skip turn_start/turn_end for storage (too noisy)
     if (event.event_type === 'turn_start' || event.event_type === 'turn_end') return;
