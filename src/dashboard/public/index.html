@@ -860,6 +860,194 @@
     margin-left: 8px;
   }
   .mem-view-btn:hover { background: rgba(88,166,255,.15); border-color: var(--accent); }
+
+  /* ── Toast Notifications ─────────────────────────── */
+  .toast-container {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-width: 360px;
+  }
+  .toast {
+    padding: 12px 16px;
+    border-radius: var(--radius-sm);
+    font-size: .82rem;
+    line-height: 1.4;
+    color: #fff;
+    box-shadow: 0 4px 16px rgba(0,0,0,.4);
+    animation: toastIn .3s ease-out;
+    cursor: pointer;
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+  }
+  .toast.danger { background: linear-gradient(135deg, #7f1d1d, #991b1b); border: 1px solid var(--red); }
+  .toast.warn   { background: linear-gradient(135deg, #78350f, #92400e); border: 1px solid var(--yellow); }
+  .toast.info   { background: linear-gradient(135deg, #1e3a5f, #1e40af); border: 1px solid var(--accent); }
+  .toast .toast-icon { font-size: 1.1rem; flex-shrink: 0; }
+  .toast .toast-msg  { flex: 1; }
+  .toast .toast-close { cursor: pointer; opacity: .6; font-size: .75rem; flex-shrink: 0; }
+  .toast .toast-close:hover { opacity: 1; }
+  @keyframes toastIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+  /* ── Time Range Selector ─────────────────────────── */
+  .range-selector {
+    display: flex;
+    gap: 4px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 3px;
+    margin-bottom: 14px;
+  }
+  .range-btn {
+    flex: 1;
+    padding: 6px 0;
+    text-align: center;
+    font-size: .75rem;
+    font-weight: 500;
+    font-family: var(--font);
+    color: var(--text-dim);
+    border: none;
+    background: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .range-btn:hover { color: var(--text); }
+  .range-btn.active { background: var(--accent); color: #fff; }
+
+  /* ── Global Search Overlay ───────────────────────── */
+  .search-overlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 100;
+    background: rgba(0,0,0,.6);
+    justify-content: center;
+    padding-top: 80px;
+  }
+  .search-overlay.open { display: flex; }
+  .search-panel {
+    width: 640px;
+    max-height: 480px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 16px 48px rgba(0,0,0,.5);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .search-input-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .search-input-wrap input {
+    flex: 1;
+    background: none;
+    border: none;
+    color: var(--text);
+    font-size: 1rem;
+    font-family: var(--font);
+    outline: none;
+  }
+  .search-input-wrap input::placeholder { color: var(--text-dim); }
+  .search-results {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+  }
+  .search-result-item {
+    padding: 10px 12px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background .15s;
+  }
+  .search-result-item:hover { background: var(--surface2); }
+  .search-result-item .sr-summary { font-size: .85rem; }
+  .search-result-item .sr-meta { font-size: .72rem; color: var(--text-dim); margin-top: 2px; }
+  .search-shortcut {
+    font-size: .68rem;
+    color: var(--text-dim);
+    padding: 4px 8px;
+    background: var(--surface2);
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    font-family: var(--mono);
+    flex-shrink: 0;
+  }
+
+  /* ── Export Button ───────────────────────────────── */
+  .export-btn {
+    padding: 5px 10px;
+    font-size: .72rem;
+    font-family: var(--font);
+    background: rgba(63,185,80,.08);
+    border: 1px solid rgba(63,185,80,.15);
+    color: var(--green);
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .export-btn:hover { background: rgba(63,185,80,.15); border-color: var(--green); }
+
+  /* ── Bulk Acknowledge ────────────────────────────── */
+  .bulk-ack-btn {
+    padding: 8px 14px;
+    font-size: .78rem;
+    font-weight: 500;
+    font-family: var(--font);
+    background: rgba(88,166,255,.08);
+    border: 1px solid rgba(88,166,255,.15);
+    color: var(--accent);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .bulk-ack-btn:hover { background: rgba(88,166,255,.15); border-color: var(--accent); }
+
+  /* ── Session active/ended badges ─────────────────── */
+  .session-status {
+    font-size: .65rem;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 10px;
+    letter-spacing: .3px;
+    text-transform: uppercase;
+  }
+  .session-status.active { background: rgba(63,185,80,.12); color: var(--green); border: 1px solid rgba(63,185,80,.2); }
+  .session-status.ended  { background: rgba(139,148,158,.08); color: var(--text-dim); border: 1px solid rgba(139,148,158,.15); }
+
+  /* ── Severity filter pills ───────────────────────── */
+  .severity-filter {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+  .sev-pill {
+    padding: 5px 12px;
+    font-size: .72rem;
+    font-weight: 500;
+    font-family: var(--font);
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .sev-pill:hover { border-color: var(--accent); color: var(--text); }
+  .sev-pill.active { background: rgba(88,166,255,.1); border-color: var(--accent); color: var(--accent); }
+  .sev-pill.active.danger { background: rgba(248,81,73,.1); border-color: var(--red); color: var(--red); }
+  .sev-pill.active.warn { background: rgba(210,153,34,.1); border-color: var(--yellow); color: var(--yellow); }
 </style>
 </head>
 <body>
@@ -877,6 +1065,8 @@
     <h1>
       <span class="logo">🛡</span>
       AL Companion Tracker
+      <span style="flex:1"></span>
+      <span class="search-shortcut" onclick="openSearch()" title="Search events (Ctrl+K)">🔍 Ctrl+K</span>
     </h1>
     <div class="header-subtitle">AI Agent Activity Monitor</div>
   </div>
@@ -910,7 +1100,10 @@
           <div id="tlProjectName" style="font-size:1.05rem;font-weight:600;">Session</div>
           <div id="tlSessionMeta" style="font-size:.78rem;color:var(--text-dim);"></div>
         </div>
-        <span id="tlAlertBadge" class="badge badge-danger"></span>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <button class="export-btn" id="tlExportBtn" onclick="exportSession('json')" title="Export session data">📥 Export</button>
+          <span id="tlAlertBadge" class="badge badge-danger"></span>
+        </div>
       </div>
       <div id="tlAgentStats"></div>
       <div class="filter-bar">
@@ -981,6 +1174,23 @@
   </div>
 </div>
 
+<!-- Toast Notifications -->
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- Global Search Overlay -->
+<div class="search-overlay" id="searchOverlay" onclick="if(event.target===this)closeSearch()">
+  <div class="search-panel">
+    <div class="search-input-wrap">
+      <span style="font-size:1rem;color:var(--text-dim)">🔍</span>
+      <input type="text" id="globalSearchInput" placeholder="Search events, commands, files..." autocomplete="off">
+      <span class="search-shortcut" onclick="closeSearch()" style="cursor:pointer">ESC</span>
+    </div>
+    <div class="search-results" id="searchResults">
+      <div style="padding:20px;text-align:center;color:var(--text-dim);font-size:.85rem;">Type to search across all events...</div>
+    </div>
+  </div>
+</div>
+
 <script>
 // ── State ──
 let state = {
@@ -995,9 +1205,12 @@ let state = {
   timelineEvents: [],
   liveLastTimestamp: null,
   viewingFile: null,
-  navStack: [],        // navigation history for back button
-  navContext: null,     // current breadcrumb context {crumbs: [{label, action}]}
-  timelineFilter: {},   // active filters: {agent, source, type, file}
+  navStack: [],
+  navContext: null,
+  timelineFilter: {},
+  homeRange: 'today',         // today | week | month
+  securityFilter: 'all',      // all | danger | warn
+  sseNewEvents: 0,            // count of new events since last timeline view
 };
 
 // ── API Helpers ──
@@ -1114,6 +1327,131 @@ function fileActionButtons(filePath) {
 function escAttr(s) {
   if (!s) return '';
   return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// ── SSE Real-time Connection ──
+let sseRetryTimer = null;
+function connectSSE() {
+  const es = new EventSource('/api/events/stream');
+  es.addEventListener('event', (e) => {
+    const data = JSON.parse(e.data);
+    // Auto-refresh current page
+    if (state.currentPage === 'home') loadHome();
+    if (state.currentPage === 'timeline' && state.selectedSessionId === data.session_id) {
+      loadTimeline(state.selectedSessionId);
+    }
+    // Update new-event badge
+    if (state.currentPage !== 'timeline') {
+      state.sseNewEvents++;
+      updateNavBadges();
+    }
+  });
+  es.addEventListener('alert', (e) => {
+    const data = JSON.parse(e.data);
+    showToast(data.severity, data.message);
+    if (state.currentPage === 'security') loadSecurity();
+    if (state.currentPage === 'home') loadHome();
+    updateNavBadges();
+  });
+  es.addEventListener('session-ended', (e) => {
+    if (state.currentPage === 'sessions') loadSessions();
+  });
+  es.onerror = () => {
+    es.close();
+    if (sseRetryTimer) clearTimeout(sseRetryTimer);
+    sseRetryTimer = setTimeout(connectSSE, 5000);
+  };
+}
+connectSSE();
+
+// ── Toast Notifications ──
+function showToast(severity, message) {
+  const container = document.getElementById('toastContainer');
+  const icon = severity === 'danger' ? '🚨' : severity === 'warn' ? '⚠️' : 'ℹ️';
+  const toast = document.createElement('div');
+  toast.className = `toast ${severity}`;
+  toast.innerHTML = `<span class="toast-icon">${icon}</span><span class="toast-msg">${esc(message)}</span><span class="toast-close" onclick="this.parentElement.remove()">✕</span>`;
+  toast.onclick = (e) => {
+    if (e.target.classList.contains('toast-close')) return;
+    showPage('security');
+    toast.remove();
+  };
+  container.appendChild(toast);
+  setTimeout(() => { if (toast.parentElement) toast.remove(); }, 8000);
+}
+
+// ── Nav Badge Updates ──
+function updateNavBadges() {
+  // Timeline badge for new events
+  const tlBtn = document.querySelector('[data-page="timeline"]');
+  let tlBadge = tlBtn?.querySelector('.nav-badge-events');
+  if (state.sseNewEvents > 0 && state.currentPage !== 'timeline') {
+    if (!tlBadge) {
+      tlBadge = document.createElement('span');
+      tlBadge.className = 'nav-badge nav-badge-events';
+      tlBadge.style.background = 'var(--accent)';
+      tlBtn.appendChild(tlBadge);
+    }
+    tlBadge.textContent = state.sseNewEvents > 99 ? '99+' : state.sseNewEvents;
+    tlBadge.style.display = '';
+  } else if (tlBadge) {
+    tlBadge.style.display = 'none';
+  }
+}
+
+// ── Global Search ──
+let searchDebounce = null;
+function openSearch() {
+  document.getElementById('searchOverlay').classList.add('open');
+  const input = document.getElementById('globalSearchInput');
+  input.value = '';
+  input.focus();
+  document.getElementById('searchResults').innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-dim);font-size:.85rem;">Type to search across all events...</div>';
+}
+function closeSearch() {
+  document.getElementById('searchOverlay').classList.remove('open');
+}
+document.getElementById('globalSearchInput')?.addEventListener('input', (e) => {
+  clearTimeout(searchDebounce);
+  const q = e.target.value.trim();
+  if (q.length < 2) {
+    document.getElementById('searchResults').innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-dim);font-size:.85rem;">Type at least 2 characters...</div>';
+    return;
+  }
+  searchDebounce = setTimeout(async () => {
+    const results = await api(`/api/search?q=${encodeURIComponent(q)}&limit=20`);
+    const el = document.getElementById('searchResults');
+    if (!results || results.length === 0) {
+      el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-dim);font-size:.85rem;">No results found</div>';
+      return;
+    }
+    el.innerHTML = results.map(r => `
+      <div class="search-result-item" onclick="closeSearch();drillToSession('${esc(r.session_id)}','')">
+        <div class="sr-summary"><span style="margin-right:4px">${icon(r.event_type)}</span>${esc(r.summary)}</div>
+        <div class="sr-meta">
+          <span class="badge badge-${r.risk_level}" style="font-size:.6rem">${r.risk_level}</span>
+          ${fmtTime(r.timestamp)} · ${esc(r.session_id?.substring(0,8) || '')}
+          ${(r.file_paths||[]).length ? ' · ' + esc(r.file_paths[0].split(/[\\/]/).pop()) : ''}
+        </div>
+      </div>
+    `).join('');
+  }, 250);
+});
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+    e.preventDefault();
+    openSearch();
+  }
+  if (e.key === 'Escape' && document.getElementById('searchOverlay').classList.contains('open')) {
+    closeSearch();
+  }
+});
+
+// ── Export Session ──
+function exportSession(format) {
+  if (!state.selectedSessionId) return;
+  const url = `/api/sessions/${state.selectedSessionId}/export?format=${format}`;
+  window.open(url, '_blank');
 }
 
 // ── Navigation History & Breadcrumbs ──
@@ -1263,6 +1601,12 @@ function showPage(name, sessionId) {
   document.querySelector(`[data-page="${name}"]`)?.classList.add('active');
   document.getElementById('contentArea').scrollTop = 0;
 
+  // Reset timeline badge when viewing timeline
+  if (name === 'timeline') {
+    state.sseNewEvents = 0;
+    updateNavBadges();
+  }
+
   if (name === 'home') loadHome();
   else if (name === 'sessions') loadSessions();
   else if (name === 'timeline') loadTimeline(sessionId || state.selectedSessionId);
@@ -1344,7 +1688,7 @@ function buildSourcesSummary(sessions) {
 
 // ── HOME Page ──
 async function loadHome() {
-  const [stats, sessions] = await Promise.all([api('/api/stats'), api('/api/sessions')]);
+  const [stats, sessions] = await Promise.all([api(`/api/stats?range=${state.homeRange}`), api('/api/sessions')]);
   state.sessions = sessions || [];
   if (!stats) {
     document.getElementById('homeContent').innerHTML = '<div class="empty-state"><div class="icon">📊</div><div class="msg">No data yet.<br>Start an AI coding session and events will appear here.</div></div>';
@@ -1393,9 +1737,15 @@ async function loadHome() {
   }
 
   document.getElementById('homeContent').innerHTML = `
+    <div class="range-selector">
+      <button class="range-btn ${state.homeRange === 'today' ? 'active' : ''}" onclick="state.homeRange='today';loadHome()">Today</button>
+      <button class="range-btn ${state.homeRange === 'week' ? 'active' : ''}" onclick="state.homeRange='week';loadHome()">Week</button>
+      <button class="range-btn ${state.homeRange === 'month' ? 'active' : ''}" onclick="state.homeRange='month';loadHome()">Month</button>
+    </div>
+
     <div class="stat-grid">
       <div class="stat-card">
-        <div class="stat-label">Today's Events</div>
+        <div class="stat-label">Events</div>
         <div class="stat-number">${t.totalEvents}</div>
       </div>
       <div class="stat-card">
@@ -1413,6 +1763,18 @@ async function loadHome() {
       </div>
     </div>
 
+    ${stats.sessionCount !== undefined ? `
+    <div class="stat-grid" style="margin-top:0;">
+      <div class="stat-card">
+        <div class="stat-label">Sessions</div>
+        <div class="stat-number">${stats.sessionCount}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Active Now</div>
+        <div class="stat-number text-green">${stats.activeSessions || 0}</div>
+      </div>
+    </div>` : ''}
+
     <div class="card">
       <div class="card-title mb-8">Risk Distribution</div>
       <div class="donut-container">
@@ -1427,9 +1789,21 @@ async function loadHome() {
     </div>
 
     <div class="card">
-      <div class="card-title mb-8">Activity (Last 7 Days)</div>
+      <div class="card-title mb-8">Activity (Last ${state.homeRange === 'month' ? '30' : '7'} Days)</div>
       <div class="bar-chart">${barHtml}</div>
     </div>
+
+    ${stats.topFiles && stats.topFiles.length > 0 ? `
+    <div class="card">
+      <div class="card-title mb-8">Most Active Files</div>
+      ${stats.topFiles.slice(0, 5).map(f => {
+        const shortName = (f.path || '').split(/[\\/]/).pop() || f.path;
+        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:.82rem;">
+          <span class="detail-file-link" onclick="viewFile('${escAttr(f.path)}')" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(shortName)}</span>
+          <span style="color:var(--text-dim);font-size:.72rem;margin-left:8px;">${f.hits} events</span>
+        </div>`;
+      }).join('')}
+    </div>` : ''}
 
     ${alertsHtml.length > 0 ? '<div class="section-title">Recent Alerts</div>' + alertsHtml : ''}
 
@@ -1454,7 +1828,7 @@ function renderSessions(list, projectFilter) {
     <div class="session-item" onclick="drillToSession('${esc(s.id)}','${escAttr(s.project_name || s.id.substring(0,8))}')">
       <div class="session-heat ${heatClass(s.danger_count, s.warn_count)}"></div>
       <div class="session-info">
-        <div class="session-name">${sourceBadge(s.source_tool)} ${esc(s.project_name || s.id.substring(0,8))}</div>
+        <div class="session-name">${sourceBadge(s.source_tool)} ${esc(s.project_name || s.id.substring(0,8))} <span class="session-status ${s.ended_at ? 'ended' : 'active'}">${s.ended_at ? 'ended' : 'active'}</span></div>
         <div class="session-meta">${fmtDate(s.started_at)} · ${esc(s.id.substring(0,8))}</div>
       </div>
       <div class="session-stats">
@@ -1716,6 +2090,11 @@ async function loadSecurity() {
   const warn = alerts.filter(a => a.severity === 'warn').length;
   const unreviewed = alerts.filter(a => !a.acknowledged).length;
 
+  let filtered = alerts;
+  if (state.securityFilter === 'danger') filtered = alerts.filter(a => a.severity === 'danger');
+  else if (state.securityFilter === 'warn') filtered = alerts.filter(a => a.severity === 'warn');
+  else if (state.securityFilter === 'unreviewed') filtered = alerts.filter(a => !a.acknowledged);
+
   document.getElementById('securityContent').innerHTML = `
     <div class="stat-grid">
       <div class="stat-card" ${danger > 0 ? 'style="border-color:rgba(248,81,73,.3);"' : ''}>
@@ -1732,8 +2111,18 @@ async function loadSecurity() {
       </div>
     </div>
 
-    <div class="section-title">All Alerts</div>
-    ${alerts.map(a => `
+    <div class="flex-between mb-12">
+      <div class="severity-filter">
+        <span class="sev-pill ${state.securityFilter === 'all' ? 'active' : ''}" onclick="state.securityFilter='all';loadSecurity()">All (${alerts.length})</span>
+        <span class="sev-pill danger ${state.securityFilter === 'danger' ? 'active' : ''}" onclick="state.securityFilter='danger';loadSecurity()">🔴 Danger (${danger})</span>
+        <span class="sev-pill warn ${state.securityFilter === 'warn' ? 'active' : ''}" onclick="state.securityFilter='warn';loadSecurity()">🟡 Warn (${warn})</span>
+        <span class="sev-pill ${state.securityFilter === 'unreviewed' ? 'active' : ''}" onclick="state.securityFilter='unreviewed';loadSecurity()">Unreviewed (${unreviewed})</span>
+      </div>
+      ${unreviewed > 0 ? `<button class="bulk-ack-btn" onclick="bulkAcknowledge()">✓ Ack All (${unreviewed})</button>` : ''}
+    </div>
+
+    <div class="section-title">Alerts (${filtered.length})</div>
+    ${filtered.map(a => `
       <div class="alert-item clickable sev-${a.severity}" onclick="drillAlertToEvent(${a.event_id || 0}, '${esc(a.session_id || '')}')">
         <div class="flex-between">
           <div class="alert-time">${fmtTime(a.timestamp)}${a.session_id ? ` <span class="tl-session-link">📋 ${esc(a.session_id.substring(0,8))}</span>` : ''}</div>
@@ -1753,6 +2142,11 @@ async function ackAlert(id, btn) {
   await api('/api/alerts/' + id + '/acknowledge');
   btn.textContent = '✓ Acknowledged';
   btn.classList.add('done');
+}
+
+async function bulkAcknowledge() {
+  await fetch('/api/alerts/acknowledge-all', { method: 'POST' });
+  loadSecurity();
 }
 
 // ── MEMORY Page ──

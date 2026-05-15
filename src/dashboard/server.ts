@@ -5,9 +5,20 @@ import { exec } from 'child_process';
 import { Config } from '../config';
 import {
   getAllSessions, getSession, getSessionEvents, getRecentEvents,
-  getAlerts, acknowledgeAlert, getMemoryOps, getStats, getProjectStats, getLiveEvents, getAgentStats,
-  getEventById, getEventsByFile, getSessionsByProject,
+  getAlerts, acknowledgeAlert, acknowledgeAllAlerts, getMemoryOps,
+  getStats, getStatsForRange, getProjectStats, getLiveEvents, getAgentStats,
+  getEventById, getEventsByFile, getSessionsByProject, searchEvents, getDb,
 } from '../storage/db';
+
+// SSE — broadcast events to connected dashboard clients
+const sseClients = new Set<express.Response>();
+
+export function broadcastSSE(eventType: string, data: unknown) {
+  const payload = `event: ${eventType}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const client of sseClients) {
+    try { client.write(payload); } catch { sseClients.delete(client); }
+  }
+}
 
 export function createDashboardServer(config: Config): express.Express {
   const app = express();
@@ -18,9 +29,53 @@ export function createDashboardServer(config: Config): express.Express {
 
   // ── API Routes ──
 
+  // SSE — real-time event streaming
+  app.get('/api/events/stream', (req, res) => {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    });
+    res.write('event: connected\ndata: {}\n\n');
+    sseClients.add(res);
+    req.on('close', () => sseClients.delete(res));
+  });
+
   // Stats / Home
-  app.get('/api/stats', (_req, res) => {
-    res.json(getStats());
+  app.get('/api/stats', (req, res) => {
+    const range = (req.query.range as string) || 'today';
+    const now = new Date();
+    let startDate: string;
+    let endDate = new Date(now.getTime() + 86400000).toISOString().split('T')[0] + 'T00:00:00';
+
+    if (range === 'week') {
+      const d = new Date(now);
+      d.setDate(d.getDate() - 7);
+      startDate = d.toISOString().split('T')[0] + 'T00:00:00';
+    } else if (range === 'month') {
+      const d = new Date(now);
+      d.setDate(d.getDate() - 30);
+      startDate = d.toISOString().split('T')[0] + 'T00:00:00';
+    } else {
+      startDate = now.toISOString().split('T')[0] + 'T00:00:00';
+    }
+
+    const stats = getStatsForRange(startDate, endDate);
+
+    // Daily event counts for chart
+    const days = range === 'month' ? 30 : range === 'week' ? 7 : 7;
+    const dailyCounts: Array<{ date: string; count: number }> = [];
+    const d2 = getDb();
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const dateStr = d.toISOString().split('T')[0];
+      const count = (d2.prepare('SELECT COUNT(*) as c FROM events WHERE timestamp >= ? AND timestamp < ?')
+        .get(dateStr + 'T00:00:00', dateStr + 'T23:59:59') as { c: number }).c;
+      dailyCounts.push({ date: dateStr, count });
+    }
+
+    res.json({ ...stats, dailyCounts });
   });
 
   // Sessions
@@ -80,6 +135,14 @@ export function createDashboardServer(config: Config): express.Express {
     res.json(getSessionsByProject(req.params.name, limit));
   });
 
+  // Full-text search across events
+  app.get('/api/search', (req, res) => {
+    const q = req.query.q as string;
+    if (!q || q.length < 2) return res.status(400).json({ error: 'Query must be at least 2 characters' });
+    const limit = parseInt(req.query.limit as string) || 100;
+    res.json(searchEvents(q, limit));
+  });
+
   // Alerts
   app.get('/api/alerts', (req, res) => {
     const limit = parseInt(req.query.limit as string) || 100;
@@ -95,9 +158,40 @@ export function createDashboardServer(config: Config): express.Express {
     res.json({ ok: true });
   });
 
+  app.post('/api/alerts/acknowledge-all', (_req, res) => {
+    acknowledgeAllAlerts();
+    res.json({ ok: true });
+  });
+
   // Agent stats
   app.get('/api/sessions/:id/agents', (req, res) => {
     res.json(getAgentStats(req.params.id));
+  });
+
+  // Export session data
+  app.get('/api/sessions/:id/export', (req, res) => {
+    const session = getSession(req.params.id);
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+    const events = getSessionEvents(req.params.id, 10000);
+    const alerts = getAlerts(1000, undefined, req.params.id);
+    const memory = getMemoryOps(1000, req.params.id);
+    const format = (req.query.format as string) || 'json';
+
+    if (format === 'csv') {
+      const header = 'timestamp,event_type,risk_level,agent_id,tool_name,summary,command,file_paths\n';
+      const rows = events.map(e =>
+        [e.timestamp, e.event_type, e.risk_level, e.agent_id, e.tool_name || '',
+         `"${(e.summary || '').replace(/"/g, '""')}"`,
+         `"${(e.command || '').replace(/"/g, '""')}"`,
+         `"${(e.file_paths || []).join(';')}"`].join(',')
+      ).join('\n');
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="session-${req.params.id.substring(0,8)}.csv"`);
+      return res.send(header + rows);
+    }
+
+    res.setHeader('Content-Disposition', `attachment; filename="session-${req.params.id.substring(0,8)}.json"`);
+    res.json({ session, events, alerts, memory });
   });
 
   // Memory

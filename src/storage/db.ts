@@ -99,6 +99,18 @@ function migrate() {
   }
 }
 
+// ── Retention cleanup ──
+
+export function enforceRetention(maxAgeDays: number) {
+  if (maxAgeDays <= 0) return;
+  const cutoff = new Date(Date.now() - maxAgeDays * 86400000).toISOString();
+  db.exec(`DELETE FROM events WHERE timestamp < '${cutoff}'`);
+  db.exec(`DELETE FROM alerts WHERE timestamp < '${cutoff}'`);
+  db.exec(`DELETE FROM memory_operations WHERE timestamp < '${cutoff}'`);
+  // Clean up sessions with no remaining events
+  db.exec(`DELETE FROM sessions WHERE id NOT IN (SELECT DISTINCT session_id FROM events) AND started_at < '${cutoff}'`);
+}
+
 // ── Session CRUD ──
 
 export function upsertSession(info: SessionInfo) {
@@ -288,4 +300,87 @@ export function getSessionsByProject(projectName: string, limit = 50): SessionIn
   return db.prepare(
     'SELECT * FROM sessions WHERE project_name = ? ORDER BY started_at DESC LIMIT ?'
   ).all(projectName, limit) as SessionInfo[];
+}
+
+// ── Full-text search across events ──
+
+export function searchEvents(query: string, limit = 100): TrackerEvent[] {
+  const like = `%${query}%`;
+  const rows = db.prepare(`
+    SELECT * FROM events
+    WHERE summary LIKE ? OR command LIKE ? OR file_paths LIKE ? OR tool_name LIKE ?
+    ORDER BY timestamp DESC LIMIT ?
+  `).all(like, like, like, like, limit) as Array<Record<string, unknown>>;
+  return rows.map(hydrateEvent);
+}
+
+// ── Bulk acknowledge all alerts ──
+
+export function acknowledgeAllAlerts() {
+  db.prepare('UPDATE alerts SET acknowledged = 1 WHERE acknowledged = 0').run();
+}
+
+// ── Enhanced stats with session counts + time range ──
+
+export function getStatsForRange(startDate: string, endDate: string) {
+  const d = db;
+
+  const totalEvents = (d.prepare(`SELECT COUNT(*) as c FROM events WHERE timestamp >= ? AND timestamp < ?`).get(startDate, endDate) as { c: number }).c;
+  const filesChanged = (d.prepare(`SELECT COUNT(DISTINCT e.id) as c FROM events e WHERE event_type IN ('file_write','file_create','file_delete') AND timestamp >= ? AND timestamp < ?`).get(startDate, endDate) as { c: number }).c;
+  const commandsRun = (d.prepare(`SELECT COUNT(*) as c FROM events WHERE event_type IN ('terminal_command','git_commit','git_push','git_reset','git_checkout','git_operation') AND timestamp >= ? AND timestamp < ?`).get(startDate, endDate) as { c: number }).c;
+  const alertCount = (d.prepare(`SELECT COUNT(*) as c FROM alerts WHERE timestamp >= ? AND timestamp < ?`).get(startDate, endDate) as { c: number }).c;
+  const unreviewedAlerts = (d.prepare(`SELECT COUNT(*) as c FROM alerts WHERE acknowledged = 0`).get() as { c: number }).c;
+  const dangerCount = (d.prepare(`SELECT COUNT(*) as c FROM events WHERE risk_level = 'danger' AND timestamp >= ? AND timestamp < ?`).get(startDate, endDate) as { c: number }).c;
+  const warnCount = (d.prepare(`SELECT COUNT(*) as c FROM events WHERE risk_level = 'warn' AND timestamp >= ? AND timestamp < ?`).get(startDate, endDate) as { c: number }).c;
+
+  const riskDist = d.prepare(`
+    SELECT risk_level, COUNT(*) as count FROM events WHERE timestamp >= ? AND timestamp < ? GROUP BY risk_level
+  `).all(startDate, endDate) as Array<{ risk_level: string; count: number }>;
+
+  const sessionCount = (d.prepare(`SELECT COUNT(*) as c FROM sessions WHERE started_at >= ? AND started_at < ?`).get(startDate, endDate) as { c: number }).c;
+  const activeSessions = (d.prepare(`SELECT COUNT(*) as c FROM sessions WHERE ended_at IS NULL`).get() as { c: number }).c;
+
+  // Top files (most events)
+  const topFiles = d.prepare(`
+    SELECT file_paths, COUNT(*) as hits FROM events
+    WHERE timestamp >= ? AND timestamp < ? AND file_paths != '[]'
+    GROUP BY file_paths ORDER BY hits DESC LIMIT 10
+  `).all(startDate, endDate) as Array<{ file_paths: string; hits: number }>;
+
+  // Top commands
+  const topCommands = d.prepare(`
+    SELECT command, COUNT(*) as hits FROM events
+    WHERE timestamp >= ? AND timestamp < ? AND command IS NOT NULL AND command != ''
+    GROUP BY command ORDER BY hits DESC LIMIT 5
+  `).all(startDate, endDate) as Array<{ command: string; hits: number }>;
+
+  return {
+    today: { totalEvents, filesChanged, commandsRun, alertCount, unreviewedAlerts, dangerCount, warnCount },
+    riskDistribution: riskDist,
+    sessionCount,
+    activeSessions,
+    topFiles: topFiles.map(r => {
+      try {
+        const paths = JSON.parse(r.file_paths);
+        return { path: Array.isArray(paths) ? paths[0] : r.file_paths, hits: r.hits };
+      } catch { return { path: r.file_paths, hits: r.hits }; }
+    }),
+    topCommands,
+  };
+}
+
+// ── Session ended_at update ──
+
+export function markSessionEnded(sessionId: string, endedAt: string) {
+  db.prepare('UPDATE sessions SET ended_at = ? WHERE id = ? AND ended_at IS NULL').run(endedAt, sessionId);
+}
+
+// ── Composite alert detection ──
+
+export function getRecentSessionAlertBurst(sessionId: string, windowMinutes: number, threshold: number): boolean {
+  const since = new Date(Date.now() - windowMinutes * 60000).toISOString();
+  const count = (db.prepare(
+    `SELECT COUNT(*) as c FROM alerts WHERE session_id = ? AND timestamp >= ? AND severity IN ('warn','danger')`
+  ).get(sessionId, since) as { c: number }).c;
+  return count >= threshold;
 }

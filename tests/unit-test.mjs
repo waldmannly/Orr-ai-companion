@@ -27,7 +27,9 @@ const {
   insertEvent, getSessionEvents, getRecentEvents, getLiveEvents,
   insertAlert, getAlerts, acknowledgeAlert,
   insertMemoryOp, getMemoryOps, getStats, getProjectStats, getAgentStats,
-  getEventById, getEventsByFile, getSessionsByProject
+  getEventById, getEventsByFile, getSessionsByProject,
+  searchEvents, acknowledgeAllAlerts, getStatsForRange,
+  enforceRetention, markSessionEnded, getRecentSessionAlertBurst
 } = dbMod;
 
 const providersMod = await import('../dist/providers/index.js');
@@ -947,6 +949,69 @@ test('getSessionsByProject returns sessions for project', () => {
 test('getSessionsByProject returns empty for unknown project', () => {
   const sessions = getSessionsByProject('nonexistent-project-xyz');
   assert.equal(sessions.length, 0);
+});
+
+// ── New DB function tests ──
+
+test('searchEvents finds events by summary', () => {
+  const results = searchEvents('Read');
+  assert.ok(Array.isArray(results));
+  assert.ok(results.length > 0);
+});
+
+test('searchEvents finds events by command', () => {
+  const results = searchEvents('npm');
+  assert.ok(Array.isArray(results));
+});
+
+test('searchEvents returns empty for gibberish', () => {
+  const results = searchEvents('xyznonexistent999');
+  assert.equal(results.length, 0);
+});
+
+test('getStatsForRange returns stats for date range', () => {
+  const start = '2024-01-01T00:00:00';
+  const end = '2099-01-01T00:00:00';
+  const stats = getStatsForRange(start, end);
+  assert.ok(stats.today);
+  assert.ok(typeof stats.today.totalEvents === 'number');
+  assert.ok(typeof stats.sessionCount === 'number');
+  assert.ok(typeof stats.activeSessions === 'number');
+  assert.ok(Array.isArray(stats.topFiles));
+  assert.ok(Array.isArray(stats.topCommands));
+});
+
+test('getStatsForRange returns zero for future range', () => {
+  const stats = getStatsForRange('2099-01-01T00:00:00', '2099-12-31T23:59:59');
+  assert.equal(stats.today.totalEvents, 0);
+});
+
+test('markSessionEnded sets ended_at', () => {
+  const endTime = '2025-01-01T01:00:00Z';
+  markSessionEnded('test-s1', endTime);
+  const s = getSession('test-s1');
+  assert.equal(s.ended_at, endTime);
+});
+
+test('markSessionEnded does not overwrite existing ended_at', () => {
+  markSessionEnded('test-s1', '2099-01-01T00:00:00Z');
+  const s = getSession('test-s1');
+  assert.equal(s.ended_at, '2025-01-01T01:00:00Z'); // unchanged
+});
+
+test('acknowledgeAllAlerts marks all as acknowledged', () => {
+  acknowledgeAllAlerts();
+  const alerts = getAlerts(100);
+  assert.ok(alerts.every(a => a.acknowledged === true));
+});
+
+test('getRecentSessionAlertBurst returns false for low activity', () => {
+  const result = getRecentSessionAlertBurst('test-s1', 5, 100);
+  assert.equal(result, false);
+});
+
+test('enforceRetention does not crash', () => {
+  enforceRetention(99999); // very large age, nothing to prune
 });
 
 test('insertAlert stores alert', () => {
@@ -2172,6 +2237,79 @@ await testAsync('GET /api/projects/:name/sessions returns empty for unknown', as
   const { data } = await fetchJson('/api/projects/nonexistent-xyz/sessions');
   assert.ok(Array.isArray(data));
   assert.equal(data.length, 0);
+});
+
+await testAsync('GET /api/search returns results', async () => {
+  const { status, data } = await fetchJson('/api/search?q=Read');
+  assert.equal(status, 200);
+  assert.ok(Array.isArray(data));
+});
+
+await testAsync('GET /api/search returns 400 for short query', async () => {
+  const res = await fetch(`${BASE}/api/search?q=a`);
+  assert.equal(res.status, 400);
+});
+
+await testAsync('GET /api/stats?range=today returns stats', async () => {
+  const { status, data } = await fetchJson('/api/stats?range=today');
+  assert.equal(status, 200);
+  assert.ok(data.today);
+  assert.ok(typeof data.sessionCount === 'number');
+  assert.ok(typeof data.activeSessions === 'number');
+  assert.ok(Array.isArray(data.topFiles));
+  assert.ok(Array.isArray(data.dailyCounts));
+});
+
+await testAsync('GET /api/stats?range=week returns stats', async () => {
+  const { status, data } = await fetchJson('/api/stats?range=week');
+  assert.equal(status, 200);
+  assert.ok(data.today);
+});
+
+await testAsync('GET /api/stats?range=month returns stats', async () => {
+  const { data } = await fetchJson('/api/stats?range=month');
+  assert.ok(data.today);
+});
+
+await testAsync('GET /api/sessions/:id/export returns JSON', async () => {
+  const { status, data } = await fetchJson(`/api/sessions/test-s1/export?format=json`);
+  assert.equal(status, 200);
+  assert.ok(data.session);
+  assert.ok(Array.isArray(data.events));
+  assert.ok(Array.isArray(data.alerts));
+  assert.ok(Array.isArray(data.memory));
+});
+
+await testAsync('GET /api/sessions/:id/export CSV', async () => {
+  const res = await fetch(`${BASE}/api/sessions/test-s1/export?format=csv`);
+  assert.equal(res.status, 200);
+  const text = await res.text();
+  assert.ok(text.includes('timestamp,event_type'));
+});
+
+await testAsync('GET /api/sessions/:id/export returns 404 for missing', async () => {
+  const res = await fetch(`${BASE}/api/sessions/nonexistent/export`);
+  assert.equal(res.status, 404);
+});
+
+await testAsync('POST /api/alerts/acknowledge-all works', async () => {
+  const res = await fetch(`${BASE}/api/alerts/acknowledge-all`, { method: 'POST' });
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.ok(data.ok);
+});
+
+await testAsync('GET /api/events/stream returns SSE', async () => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 1000);
+  try {
+    const res = await fetch(`${BASE}/api/events/stream`, { signal: controller.signal });
+    assert.equal(res.status, 200);
+    assert.ok(res.headers.get('content-type').includes('text/event-stream'));
+  } catch (e) {
+    if (e.name !== 'AbortError') throw e;
+  }
+  clearTimeout(timer);
 });
 
 await testAsync('GET /api/alerts returns alerts', async () => {

@@ -3,9 +3,10 @@ import { LogTailer } from './log-tailer';
 import { SessionParserState } from '../parser';
 import { classifyRisk, extractMemoryOp } from '../risk/classifier';
 import { evaluateAlerts, persistAlerts } from '../alerts/engine';
-import { initDb, upsertSession, insertEvent, insertMemoryOp, getSession } from '../storage/db';
+import { initDb, upsertSession, insertEvent, insertMemoryOp, getSession, markSessionEnded, enforceRetention, insertAlert, getRecentSessionAlertBurst } from '../storage/db';
 import { SessionInfo } from '../parser/event-types';
 import { LogProvider, TranscriptFile, getActiveProviders, createCustomProvider } from '../providers';
+import { broadcastSSE } from '../dashboard/server';
 
 export class Watcher {
   private config: Config;
@@ -15,6 +16,9 @@ export class Watcher {
   private providers: LogProvider[] = [];
   /** Map sessionId → provider so we know which parser to use */
   private sessionProvider = new Map<string, LogProvider>();
+  /** Track last event time per session for session-end detection */
+  private sessionLastActivity = new Map<string, number>();
+  private sessionEndTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(config?: Config) {
     this.config = config || loadConfig();
@@ -24,6 +28,12 @@ export class Watcher {
   start() {
     console.log('[watcher] Initializing database...');
     initDb();
+
+    // Enforce retention policy on startup
+    if (this.config.retention.maxAgeDays > 0) {
+      console.log(`[watcher] Enforcing retention: pruning events older than ${this.config.retention.maxAgeDays} days`);
+      enforceRetention(this.config.retention.maxAgeDays);
+    }
 
     // Build provider list: built-in auto-detected + custom from config
     const customProviders = (this.config.customProviders || [])
@@ -59,6 +69,21 @@ export class Watcher {
     }
 
     console.log(`[watcher] Now tailing ${this.tailer.tailedFileCount} files (${totalFiles} discovered)`);
+
+    // Session end detection: mark sessions as ended after 5min inactivity
+    this.sessionEndTimer = setInterval(() => {
+      const cutoff = Date.now() - 5 * 60 * 1000;
+      for (const [sessionId, lastTime] of this.sessionLastActivity) {
+        if (lastTime < cutoff) {
+          const counters = this.sessionCounters.get(sessionId);
+          if (counters && counters.total > 0) {
+            markSessionEnded(sessionId, new Date(lastTime).toISOString());
+            this.sessionLastActivity.delete(sessionId);
+            broadcastSSE('session-ended', { sessionId });
+          }
+        }
+      }
+    }, 60000);
   }
 
   private tailTranscript(file: TranscriptFile, provider: LogProvider) {
@@ -113,6 +138,13 @@ export class Watcher {
     const eventId = insertEvent(event);
     event.id = eventId;
 
+    // Track session activity for end detection
+    this.sessionLastActivity.set(file.sessionId, Date.now());
+
+    // Broadcast to SSE clients
+    broadcastSSE('event', { id: eventId, session_id: event.session_id, event_type: event.event_type,
+      risk_level: event.risk_level, summary: event.summary, timestamp: event.timestamp, agent_id: event.agent_id });
+
     // Extract and store memory operations
     const memOp = extractMemoryOp(event);
     if (memOp) {
@@ -126,6 +158,27 @@ export class Watcher {
     if (alerts.length > 0) {
       for (const a of alerts) a.event_id = eventId;
       persistAlerts(alerts);
+      // Broadcast alert to SSE
+      for (const a of alerts) {
+        broadcastSSE('alert', { severity: a.severity, message: a.message, session_id: a.session_id, event_id: eventId });
+      }
+    }
+
+    // Composite risk: if 3+ warn/danger alerts in 5 minutes, fire escalation alert
+    if (event.risk_level === 'warn' || event.risk_level === 'danger') {
+      if (getRecentSessionAlertBurst(file.sessionId, 5, 5)) {
+        const existing = alerts.find(a => a.alert_type === 'alert_burst');
+        if (!existing) {
+          const burstAlert = {
+            event_id: eventId, session_id: file.sessionId, timestamp: event.timestamp,
+            alert_type: 'alert_burst', severity: 'danger' as const,
+            message: `High alert activity: 5+ warnings in 5 minutes in this session`,
+            acknowledged: false,
+          };
+          insertAlert(burstAlert);
+          broadcastSSE('alert', { severity: 'danger', message: burstAlert.message, session_id: file.sessionId, event_id: eventId });
+        }
+      }
     }
 
     // Update session counters
@@ -156,6 +209,7 @@ export class Watcher {
   }
 
   stop() {
+    if (this.sessionEndTimer) clearInterval(this.sessionEndTimer);
     this.tailer.stopAll();
   }
 }
