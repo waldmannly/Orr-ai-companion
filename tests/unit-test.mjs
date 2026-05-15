@@ -2159,6 +2159,87 @@ await testAsync('GET /unknown-route serves SPA fallback', async () => {
   assert.ok(text.includes('html'));
 });
 
+// ── File Deep-Link API Tests ──
+
+// Create a temp file for testing
+const fileTestDir = fs.mkdtempSync(path.join(os.tmpdir(), 'al-file-test-'));
+const tmpTestFile = path.join(fileTestDir, 'test-file.ts');
+fs.writeFileSync(tmpTestFile, 'const x = 1;\nconst y = 2;\nconsole.log(x + y);\n');
+
+await testAsync('GET /api/file/read returns file content', async () => {
+  const res = await fetch(`${BASE}/api/file/read?path=${encodeURIComponent(tmpTestFile)}`);
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.ok(data.content.includes('const x = 1'));
+  assert.equal(data.truncated, false);
+  assert.ok(data.size > 0);
+});
+
+await testAsync('GET /api/file/read returns 400 for missing path', async () => {
+  const res = await fetch(`${BASE}/api/file/read`);
+  assert.equal(res.status, 400);
+});
+
+await testAsync('GET /api/file/read returns 404 for missing file', async () => {
+  const res = await fetch(`${BASE}/api/file/read?path=${encodeURIComponent('/nonexistent/file.txt')}`);
+  assert.equal(res.status, 404);
+});
+
+await testAsync('POST /api/file/open returns ok for existing file', async () => {
+  const res = await fetch(`${BASE}/api/file/open`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: tmpTestFile }),
+  });
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.ok, true);
+});
+
+await testAsync('POST /api/file/open returns 404 for missing file', async () => {
+  const res = await fetch(`${BASE}/api/file/open`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: '/nonexistent/file.txt' }),
+  });
+  assert.equal(res.status, 404);
+});
+
+await testAsync('POST /api/file/open returns 400 for missing path', async () => {
+  const res = await fetch(`${BASE}/api/file/open`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  assert.equal(res.status, 400);
+});
+
+await testAsync('POST /api/file/reveal returns ok for existing dir', async () => {
+  const res = await fetch(`${BASE}/api/file/reveal`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: tmpTestFile }),
+  });
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.ok, true);
+});
+
+await testAsync('POST /api/file/reveal returns 400 for missing path', async () => {
+  const res = await fetch(`${BASE}/api/file/reveal`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  assert.equal(res.status, 400);
+});
+
+await testAsync('POST /api/file/reveal returns 404 for nonexistent path', async () => {
+  const res = await fetch(`${BASE}/api/file/reveal`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: '/nonexistent/deeply/nested/dir/file.txt' }),
+  });
+  assert.equal(res.status, 404);
+});
+
+// Cleanup temp files
+fs.rmSync(fileTestDir, { recursive: true, force: true });
+
 // Close test server
 server.close();
 

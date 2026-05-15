@@ -568,6 +568,205 @@
     height: 60px;
     margin-bottom: 10px;
   }
+
+  /* ── File deep-link badges ───────────────────────── */
+  .tl-file {
+    cursor: pointer;
+    transition: background .15s, color .15s;
+  }
+  .tl-file:hover { background: rgba(188,140,255,.18); color: #fff; }
+  .file-actions {
+    display: inline-flex;
+    gap: 2px;
+    margin-left: 2px;
+    vertical-align: middle;
+  }
+  .file-action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border: none;
+    background: rgba(255,255,255,.06);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: .65rem;
+    color: var(--text-dim);
+    transition: background .15s, color .15s;
+    vertical-align: middle;
+    padding: 0;
+  }
+  .file-action-btn:hover { background: rgba(88,166,255,.15); color: var(--accent); }
+  .file-action-btn[title="Open in Explorer"]:hover { background: rgba(63,185,80,.15); color: var(--green); }
+
+  /* ── File viewer overlay ─────────────────────────── */
+  .file-viewer-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.6);
+    backdrop-filter: blur(4px);
+    z-index: 1000;
+    display: none;
+    align-items: stretch;
+    justify-content: center;
+  }
+  .file-viewer-overlay.open { display: flex; }
+  .file-viewer {
+    width: 720px;
+    height: 100vh;
+    background: var(--surface);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .fv-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface2);
+    flex-shrink: 0;
+  }
+  .fv-header .fv-path {
+    flex: 1;
+    font-family: var(--mono);
+    font-size: .82rem;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .fv-header .fv-size {
+    font-size: .72rem;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+  .fv-btn {
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text-dim);
+    font-size: .76rem;
+    font-family: var(--font);
+    cursor: pointer;
+    transition: all .15s;
+    white-space: nowrap;
+  }
+  .fv-btn:hover { border-color: var(--accent); color: var(--text); }
+  .fv-btn.primary { background: rgba(88,166,255,.1); border-color: var(--accent); color: var(--accent); }
+  .fv-btn.primary:hover { background: rgba(88,166,255,.2); }
+  .fv-close {
+    width: 32px;
+    height: 32px;
+    border: none;
+    background: none;
+    color: var(--text-dim);
+    font-size: 1.2rem;
+    cursor: pointer;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background .15s, color .15s;
+  }
+  .fv-close:hover { background: rgba(248,81,73,.1); color: var(--red); }
+  .fv-content {
+    flex: 1;
+    overflow: auto;
+    padding: 0;
+    position: relative;
+  }
+  .fv-code {
+    margin: 0;
+    padding: 16px 0;
+    font-family: var(--mono);
+    font-size: .8rem;
+    line-height: 1.65;
+    color: var(--text);
+    white-space: pre;
+    tab-size: 2;
+    counter-reset: line;
+  }
+  .fv-line {
+    display: block;
+    padding: 0 18px 0 60px;
+    position: relative;
+    min-height: 1.65em;
+  }
+  .fv-line:hover { background: rgba(88,166,255,.04); }
+  .fv-line::before {
+    content: counter(line);
+    counter-increment: line;
+    position: absolute;
+    left: 0;
+    width: 48px;
+    text-align: right;
+    color: var(--text-dim);
+    opacity: .4;
+    font-size: .75rem;
+    user-select: none;
+  }
+  .fv-line.highlighted {
+    background: rgba(188,140,255,.08);
+    border-left: 3px solid var(--purple);
+    padding-left: 57px;
+  }
+  .fv-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 48px;
+    color: var(--text-dim);
+    font-size: .9rem;
+  }
+  .fv-error {
+    padding: 24px;
+    text-align: center;
+    color: var(--red);
+    font-size: .9rem;
+  }
+  .fv-info-bar {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    padding: 8px 18px;
+    border-top: 1px solid var(--border);
+    background: var(--surface2);
+    font-size: .72rem;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+
+  /* ── Detail panel clickable files ────────────────── */
+  .detail-file-link {
+    color: var(--purple);
+    cursor: pointer;
+    text-decoration: underline;
+    text-decoration-color: rgba(188,140,255,.3);
+    text-underline-offset: 2px;
+  }
+  .detail-file-link:hover { text-decoration-color: var(--purple); }
+
+  /* ── Memory: view file button ────────────────────── */
+  .mem-view-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    font-size: .72rem;
+    font-family: var(--font);
+    background: rgba(88,166,255,.08);
+    border: 1px solid rgba(88,166,255,.15);
+    color: var(--accent);
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all .15s;
+    margin-left: 8px;
+  }
+  .mem-view-btn:hover { background: rgba(88,166,255,.15); border-color: var(--accent); }
 </style>
 </head>
 <body>
@@ -665,6 +864,23 @@
 
 </div>
 
+<!-- File Viewer Overlay -->
+<div class="file-viewer-overlay" id="fileViewerOverlay" onclick="if(event.target===this)closeFileViewer()">
+  <div class="file-viewer">
+    <div class="fv-header">
+      <button class="fv-close" onclick="closeFileViewer()" title="Close">✕</button>
+      <div class="fv-path" id="fvPath"></div>
+      <span class="fv-size" id="fvSize"></span>
+      <button class="fv-btn" onclick="revealInExplorer(state.viewingFile)" title="Open in Explorer">📂 Reveal</button>
+      <button class="fv-btn primary" onclick="openInEditor(state.viewingFile)" title="Open in VS Code">✏️ Edit</button>
+    </div>
+    <div class="fv-content" id="fvContent">
+      <div class="fv-loading">Loading...</div>
+    </div>
+    <div class="fv-info-bar" id="fvInfoBar"></div>
+  </div>
+</div>
+
 <script>
 // ── State ──
 let state = {
@@ -678,6 +894,7 @@ let state = {
   projects: [],
   timelineEvents: [],
   liveLastTimestamp: null,
+  viewingFile: null,
 };
 
 // ── API Helpers ──
@@ -690,6 +907,110 @@ async function api(path) {
     console.error('[api]', path, e);
     return null;
   }
+}
+
+// ── File Deep-Link Helpers ──
+async function viewFile(filePath) {
+  state.viewingFile = filePath;
+  const overlay = document.getElementById('fileViewerOverlay');
+  overlay.classList.add('open');
+  document.getElementById('fvPath').textContent = filePath;
+  document.getElementById('fvSize').textContent = '';
+  document.getElementById('fvContent').innerHTML = '<div class="fv-loading">Loading file...</div>';
+  document.getElementById('fvInfoBar').textContent = '';
+
+  const data = await api(`/api/file/read?path=${encodeURIComponent(filePath)}`);
+  if (!data || data.error) {
+    document.getElementById('fvContent').innerHTML = `<div class="fv-error">⚠️ ${esc(data?.error || 'Could not read file')}</div>`;
+    return;
+  }
+
+  const ext = filePath.split('.').pop()?.toLowerCase() || '';
+  const lines = data.content.split('\n');
+  document.getElementById('fvSize').textContent = formatFileSize(data.size);
+  document.getElementById('fvContent').innerHTML = `<pre class="fv-code">${lines.map(l => `<span class="fv-line">${escHtml(l) || ' '}</span>`).join('\n')}</pre>`;
+  document.getElementById('fvInfoBar').textContent = `${lines.length} lines · ${ext.toUpperCase() || 'TXT'}${data.truncated ? ' · Truncated (file too large)' : ''}`;
+}
+
+async function viewMemoryFile(filePath) {
+  state.viewingFile = filePath;
+  const overlay = document.getElementById('fileViewerOverlay');
+  overlay.classList.add('open');
+  document.getElementById('fvPath').textContent = filePath;
+  document.getElementById('fvSize').textContent = '';
+  document.getElementById('fvContent').innerHTML = '<div class="fv-loading">Loading memory file...</div>';
+  document.getElementById('fvInfoBar').textContent = '';
+
+  const data = await api(`/api/file/read?path=${encodeURIComponent(filePath)}`);
+  if (!data || data.error) {
+    document.getElementById('fvContent').innerHTML = `<div class="fv-error">⚠️ ${esc(data?.error || 'Could not read file')}</div>`;
+    return;
+  }
+
+  // Find memory ops that wrote to this path
+  const memOps = await api(`/api/memory?limit=200`);
+  const writes = (memOps || []).filter(o => o.memory_path === filePath && (o.operation === 'write'));
+  const writeTimestamps = writes.map(w => w.timestamp);
+
+  const ext = filePath.split('.').pop()?.toLowerCase() || '';
+  const lines = data.content.split('\n');
+  document.getElementById('fvSize').textContent = formatFileSize(data.size);
+
+  // Highlight recently-written lines by checking memory write summaries
+  const recentSummaries = writes.slice(-3).map(w => w.content_summary || '').join('\n');
+  const recentWords = new Set(recentSummaries.split(/\s+/).filter(w => w.length > 4).slice(0, 30));
+
+  document.getElementById('fvContent').innerHTML = `<pre class="fv-code">${lines.map((l, i) => {
+    // Heuristic: highlight lines that contain words from recent memory writes
+    const isHighlighted = recentWords.size > 0 && [...recentWords].some(w => l.includes(w));
+    return `<span class="fv-line${isHighlighted ? ' highlighted' : ''}">${escHtml(l) || ' '}</span>`;
+  }).join('\n')}</pre>`;
+
+  const writeInfo = writes.length > 0
+    ? ` · ${writes.length} write${writes.length > 1 ? 's' : ''} tracked (last: ${fmtTime(writes[writes.length-1].timestamp)})`
+    : '';
+  document.getElementById('fvInfoBar').textContent = `${lines.length} lines · ${ext.toUpperCase() || 'TXT'}${writeInfo}${data.truncated ? ' · Truncated' : ''}`;
+}
+
+function closeFileViewer() {
+  document.getElementById('fileViewerOverlay').classList.remove('open');
+  state.viewingFile = null;
+}
+
+async function openInEditor(filePath) {
+  if (!filePath) return;
+  await fetch('/api/file/open', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: filePath }) });
+}
+
+async function revealInExplorer(filePath) {
+  if (!filePath) return;
+  await fetch('/api/file/reveal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: filePath }) });
+}
+
+function formatFileSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function escHtml(s) {
+  if (!s) return '';
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function fileActionButtons(filePath) {
+  const ep = escAttr(filePath);
+  return `<span class="file-actions" onclick="event.stopPropagation()">` +
+    `<button class="file-action-btn" onclick="viewFile('${ep}')" title="View">👁</button>` +
+    `<button class="file-action-btn" onclick="openInEditor('${ep}')" title="Open in Editor">✏️</button>` +
+    `<button class="file-action-btn" onclick="revealInExplorer('${ep}')" title="Open in Explorer">📂</button>` +
+    `</span>`;
+}
+
+// Escape a string for safe use in inline onclick='...' attributes
+function escAttr(s) {
+  if (!s) return '';
+  return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 // ── Clock ──
@@ -1038,7 +1359,7 @@ function renderTimeline() {
     }
 
     const files = (e.file_paths || []).filter(f => f);
-    const fileHtml = files.map(f => `<span class="tl-file">${esc(f.split(/[\\/]/).pop())}</span>`).join('');
+    const fileHtml = files.map(f => `<span class="tl-file" onclick="event.stopPropagation();viewFile('${escAttr(f)}')" title="${esc(f)}">${esc(f.split(/[\\/]/).pop())}</span>${fileActionButtons(f)}`).join('');
     const detail = buildDetail(e);
     const agentBadge = isSubagent ? `<span class="agent-badge">🤖 ${esc(e.agent_id)}</span>` : '';
     const subagentDetail = e.event_type === 'subagent_spawn' && e.parameters ? buildSubagentDetail(e.parameters) : '';
@@ -1052,7 +1373,7 @@ function renderTimeline() {
           ${agentBadge}
           ${fileHtml}
         </div>
-        ${detail || subagentDetail ? `<div class="tl-detail">${esc(detail)}${subagentDetail}</div>` : ''}
+        ${detail || subagentDetail ? `<div class="tl-detail">${buildDetailHtml(e)}${subagentDetail}</div>` : ''}
       </div>
     `);
   }
@@ -1071,6 +1392,26 @@ function buildDetail(e) {
   return parts.join('\n');
 }
 
+function buildDetailHtml(e) {
+  let parts = [`type: ${esc(e.event_type)}`];
+  if (e.tool_name) parts.push(`tool: ${esc(e.tool_name)}`);
+  if (e.agent_id && e.agent_id !== 'main') parts.push(`agent: ${esc(e.agent_id)}`);
+  if (e.parent_agent_id) parts.push(`parent: ${esc(e.parent_agent_id)}`);
+  if (e.command) parts.push(`command: ${esc(e.command)}`);
+  if (e.file_paths?.length) {
+    const links = e.file_paths.map(f =>
+      `<span class="detail-file-link" onclick="event.stopPropagation();viewFile('${escAttr(f)}')">${esc(f)}</span>`
+      + ` <span class="file-actions" onclick="event.stopPropagation()">`
+      + `<button class="file-action-btn" onclick="openInEditor('${escAttr(f)}')" title="Open in Editor">✏️</button>`
+      + `<button class="file-action-btn" onclick="revealInExplorer('${escAttr(f)}')" title="Open in Explorer">📂</button>`
+      + `</span>`
+    ).join('\n       ');
+    parts.push(`files: ${links}`);
+  }
+  if (e.duration_ms) parts.push(`duration: ${e.duration_ms}ms`);
+  return parts.join('\n');
+}
+
 function buildSubagentDetail(params) {
   if (!params) return '';
   let html = '';
@@ -1084,6 +1425,13 @@ function buildSubagentDetail(params) {
 }
 
 document.getElementById('timelineSearch')?.addEventListener('input', () => renderTimeline());
+
+// Close file viewer on Escape
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && document.getElementById('fileViewerOverlay').classList.contains('open')) {
+    closeFileViewer();
+  }
+});
 
 // ── SECURITY Page ──
 async function loadSecurity() {
@@ -1160,6 +1508,7 @@ async function loadMemory() {
     ${ops.map(o => {
       const opColor = o.operation === 'delete' ? 'var(--red)' : o.operation === 'write' ? 'var(--text-dim)' : 'var(--accent)';
       const isFlagged = o.risk_level === 'danger' || o.risk_level === 'warn';
+      const isViewable = o.operation !== 'delete';
       return `
         <div class="mem-item" ${isFlagged ? 'style="border-color:rgba(248,81,73,.3);"' : ''}>
           <div class="mem-header">
@@ -1169,7 +1518,11 @@ async function loadMemory() {
             </div>
             <span class="mem-scope scope-${o.memory_scope}">${esc(o.memory_scope)}</span>
           </div>
-          <div class="mem-path">${esc(o.memory_path)}</div>
+          <div class="mem-path">
+            <span class="detail-file-link" onclick="viewMemoryFile('${escAttr(o.memory_path)}')">${esc(o.memory_path)}</span>
+            ${isViewable ? `<button class="mem-view-btn" onclick="viewMemoryFile('${escAttr(o.memory_path)}')">👁 View File</button>` : ''}
+            <button class="mem-view-btn" onclick="revealInExplorer('${escAttr(o.memory_path)}')" style="color:var(--green);border-color:rgba(63,185,80,.15);background:rgba(63,185,80,.08);">📂 Reveal</button>
+          </div>
           ${o.content_summary ? `<div class="mem-content">${esc(o.content_summary)}</div>` : ''}
           ${isFlagged ? `<div class="mem-flag">🚨 Flagged: risk level ${esc(o.risk_level)}</div>` : ''}
         </div>
