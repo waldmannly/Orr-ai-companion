@@ -26,7 +26,8 @@ const {
   initDb, getDb, upsertSession, getSession, getAllSessions,
   insertEvent, getSessionEvents, getRecentEvents, getLiveEvents,
   insertAlert, getAlerts, acknowledgeAlert,
-  insertMemoryOp, getMemoryOps, getStats, getProjectStats, getAgentStats
+  insertMemoryOp, getMemoryOps, getStats, getProjectStats, getAgentStats,
+  getEventById, getEventsByFile, getSessionsByProject
 } = dbMod;
 
 const providersMod = await import('../dist/providers/index.js');
@@ -908,6 +909,44 @@ test('getAgentStats returns sub-agent breakdown', () => {
   assert.equal(explore.event_count, 2);
   assert.ok(helper);
   assert.equal(helper.event_count, 1);
+});
+
+test('getEventById returns event by ID', () => {
+  const events = getSessionEvents('test-s1', 1);
+  if (events.length > 0) {
+    const e = getEventById(events[0].id);
+    assert.ok(e);
+    assert.equal(e.id, events[0].id);
+  }
+});
+
+test('getEventById returns undefined for missing ID', () => {
+  const e = getEventById(999999);
+  assert.equal(e, undefined);
+});
+
+test('getEventsByFile returns events matching file path', () => {
+  const events = getEventsByFile('/tmp/a.ts');
+  assert.ok(Array.isArray(events));
+  assert.ok(events.length > 0);
+  assert.ok(events.every(e => e.file_paths.some(f => f.includes('/tmp/a.ts'))));
+});
+
+test('getEventsByFile returns empty for unknown file', () => {
+  const events = getEventsByFile('/nonexistent/zzz.ts');
+  assert.equal(events.length, 0);
+});
+
+test('getSessionsByProject returns sessions for project', () => {
+  const sessions = getSessionsByProject('agent-test');
+  assert.ok(Array.isArray(sessions));
+  assert.ok(sessions.length > 0);
+  assert.ok(sessions.every(s => s.project_name === 'agent-test'));
+});
+
+test('getSessionsByProject returns empty for unknown project', () => {
+  const sessions = getSessionsByProject('nonexistent-project-xyz');
+  assert.equal(sessions.length, 0);
 });
 
 test('insertAlert stores alert', () => {
@@ -2093,6 +2132,46 @@ await testAsync('GET /api/sessions/:id/agents returns agent breakdown', async ()
 await testAsync('GET /api/sessions/:id/agents returns empty for no sub-agents', async () => {
   const { data } = await fetchJson('/api/sessions/test-s1/agents');
   assert.ok(Array.isArray(data));
+});
+
+await testAsync('GET /api/events/:id returns single event', async () => {
+  const recentRes = await fetchJson('/api/events/recent?limit=1');
+  const event = recentRes.data[0];
+  if (event?.id) {
+    const { status, data } = await fetchJson(`/api/events/${event.id}`);
+    assert.equal(status, 200);
+    assert.equal(data.id, event.id);
+  }
+});
+
+await testAsync('GET /api/events/:id returns 404 for missing', async () => {
+  const res = await fetch(`${BASE}/api/events/999999`);
+  assert.equal(res.status, 404);
+});
+
+await testAsync('GET /api/events/by-file returns events for file', async () => {
+  const { status, data } = await fetchJson('/api/events/by-file?path=/tmp/a.ts');
+  assert.equal(status, 200);
+  assert.ok(Array.isArray(data));
+  assert.ok(data.length > 0);
+});
+
+await testAsync('GET /api/events/by-file returns 400 without path', async () => {
+  const res = await fetch(`${BASE}/api/events/by-file`);
+  assert.equal(res.status, 400);
+});
+
+await testAsync('GET /api/projects/:name/sessions returns sessions', async () => {
+  const { status, data } = await fetchJson(`/api/projects/${encodeURIComponent('agent-test')}/sessions`);
+  assert.equal(status, 200);
+  assert.ok(Array.isArray(data));
+  assert.ok(data.length > 0);
+});
+
+await testAsync('GET /api/projects/:name/sessions returns empty for unknown', async () => {
+  const { data } = await fetchJson('/api/projects/nonexistent-xyz/sessions');
+  assert.ok(Array.isArray(data));
+  assert.equal(data.length, 0);
 });
 
 await testAsync('GET /api/alerts returns alerts', async () => {

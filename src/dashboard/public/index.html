@@ -569,6 +569,99 @@
     margin-bottom: 10px;
   }
 
+  /* ── Context / Breadcrumb bar ──────────────────── */
+  .context-bar {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 18px;
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+    font-size: .76rem;
+    color: var(--text-dim);
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+  .context-bar.visible { display: flex; }
+  .ctx-back {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text-dim);
+    cursor: pointer;
+    flex-shrink: 0;
+    font-size: .85rem;
+    transition: all .15s;
+  }
+  .ctx-back:hover { border-color: var(--accent); color: var(--accent); background: rgba(88,166,255,.06); }
+  .ctx-crumbs {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex: 1;
+    overflow: hidden;
+  }
+  .ctx-crumb {
+    white-space: nowrap;
+    cursor: pointer;
+    color: var(--accent);
+    transition: color .15s;
+  }
+  .ctx-crumb:hover { color: #fff; }
+  .ctx-crumb.current { color: var(--text); cursor: default; }
+  .ctx-sep { color: var(--text-dim); opacity: .4; flex-shrink: 0; }
+
+  /* ── Filter chip bar ─────────────────────────────── */
+  .chip-bar {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    padding: 4px 0 8px;
+  }
+  .filter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    font-size: .72rem;
+    font-family: var(--font);
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: all .15s;
+    white-space: nowrap;
+  }
+  .filter-chip:hover { border-color: var(--accent); color: var(--text); }
+  .filter-chip.active { background: rgba(88,166,255,.1); border-color: var(--accent); color: var(--accent); }
+  .filter-chip .chip-x {
+    font-size: .65rem;
+    margin-left: 2px;
+    opacity: 0;
+    transition: opacity .15s;
+  }
+  .filter-chip.active .chip-x { opacity: 1; }
+
+  /* ── Clickable cards ─────────────────────────────── */
+  .project-card.clickable { cursor: pointer; transition: border-color .15s; }
+  .project-card.clickable:hover { border-color: var(--accent); }
+  .alert-item.clickable { cursor: pointer; transition: border-color .15s; }
+  .alert-item.clickable:hover { border-color: var(--accent); }
+  .tl-session-link {
+    font-size: .68rem;
+    color: var(--accent);
+    cursor: pointer;
+    opacity: .7;
+    transition: opacity .15s;
+  }
+  .tl-session-link:hover { opacity: 1; text-decoration: underline; }
+
   /* ── File deep-link badges ───────────────────────── */
   .tl-file {
     cursor: pointer;
@@ -788,6 +881,12 @@
     <div class="header-subtitle">AI Agent Activity Monitor</div>
   </div>
 
+  <!-- Context / Breadcrumb Bar -->
+  <div class="context-bar" id="contextBar">
+    <button class="ctx-back" onclick="navBack()" title="Back">←</button>
+    <div class="ctx-crumbs" id="ctxCrumbs"></div>
+  </div>
+
   <!-- Scrollable Content Area -->
   <div class="content" id="contentArea">
 
@@ -871,6 +970,7 @@
       <button class="fv-close" onclick="closeFileViewer()" title="Close">✕</button>
       <div class="fv-path" id="fvPath"></div>
       <span class="fv-size" id="fvSize"></span>
+      <button class="fv-btn" onclick="closeFileViewer();drillFileHistory(state.viewingFile)" title="All events touching this file">📋 History</button>
       <button class="fv-btn" onclick="revealInExplorer(state.viewingFile)" title="Open in Explorer">📂 Reveal</button>
       <button class="fv-btn primary" onclick="openInEditor(state.viewingFile)" title="Open in VS Code">✏️ Edit</button>
     </div>
@@ -895,6 +995,9 @@ let state = {
   timelineEvents: [],
   liveLastTimestamp: null,
   viewingFile: null,
+  navStack: [],        // navigation history for back button
+  navContext: null,     // current breadcrumb context {crumbs: [{label, action}]}
+  timelineFilter: {},   // active filters: {agent, source, type, file}
 };
 
 // ── API Helpers ──
@@ -1011,6 +1114,127 @@ function fileActionButtons(filePath) {
 function escAttr(s) {
   if (!s) return '';
   return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// ── Navigation History & Breadcrumbs ──
+function navTo(page, context, sessionId) {
+  // Push current state onto stack before navigating
+  if (state.currentPage !== page || state.selectedSessionId !== sessionId) {
+    state.navStack.push({
+      page: state.currentPage,
+      sessionId: state.selectedSessionId,
+      context: state.navContext,
+      filter: { ...state.timelineFilter },
+    });
+    if (state.navStack.length > 20) state.navStack.shift();
+  }
+  state.navContext = context || null;
+  updateContextBar();
+  showPage(page, sessionId);
+}
+
+function navBack() {
+  if (!state.navStack.length) return;
+  const prev = state.navStack.pop();
+  state.navContext = prev.context;
+  state.timelineFilter = prev.filter || {};
+  updateContextBar();
+  showPage(prev.page, prev.sessionId);
+}
+
+function updateContextBar() {
+  const bar = document.getElementById('contextBar');
+  const crumbs = document.getElementById('ctxCrumbs');
+  if (!state.navContext || !state.navContext.crumbs?.length) {
+    bar.classList.remove('visible');
+    return;
+  }
+  bar.classList.toggle('visible', state.navStack.length > 0 || state.navContext.crumbs.length > 1);
+  crumbs.innerHTML = state.navContext.crumbs.map((c, i, arr) => {
+    const isLast = i === arr.length - 1;
+    const sep = i < arr.length - 1 ? '<span class="ctx-sep">›</span>' : '';
+    if (isLast) return `<span class="ctx-crumb current">${esc(c.label)}</span>${sep}`;
+    return `<span class="ctx-crumb" onclick="${c.action}">${esc(c.label)}</span>${sep}`;
+  }).join('');
+}
+
+// ── Drill-down helpers ──
+function drillToSession(sessionId, projectName) {
+  const ctx = { crumbs: [
+    { label: 'Sessions', action: "navTo('sessions')" },
+    { label: projectName || sessionId.substring(0, 8), action: '' },
+  ] };
+  navTo('timeline', ctx, sessionId);
+}
+
+function drillToSessionFromProject(sessionId, projectName) {
+  const ctx = { crumbs: [
+    { label: 'Projects', action: "navTo('projects')" },
+    { label: projectName, action: `drillProjectSessions('${escAttr(projectName)}')` },
+    { label: 'Session ' + sessionId.substring(0, 8), action: '' },
+  ] };
+  navTo('timeline', ctx, sessionId);
+}
+
+async function drillAlertToEvent(eventId, sessionId) {
+  if (!sessionId) return;
+  const ctx = { crumbs: [
+    { label: 'Security', action: "navTo('security')" },
+    { label: 'Alert → Event', action: '' },
+  ] };
+  navTo('timeline', ctx, sessionId);
+  // After loading, try to scroll to and highlight the event
+  await new Promise(r => setTimeout(r, 300));
+  const el = document.querySelector(`[data-event-id="${eventId}"]`);
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('expanded');
+    el.style.boxShadow = '0 0 0 2px var(--accent)';
+    setTimeout(() => el.style.boxShadow = '', 2000);
+  }
+}
+
+async function drillProjectSessions(projectName) {
+  const ctx = { crumbs: [
+    { label: 'Projects', action: "navTo('projects')" },
+    { label: projectName, action: '' },
+  ] };
+  navTo('sessions', ctx);
+  // Load filtered sessions for this project
+  const sessions = await api(`/api/projects/${encodeURIComponent(projectName)}/sessions`);
+  renderSessions(sessions || [], projectName);
+}
+
+async function drillFileHistory(filePath) {
+  const ctx = { crumbs: [
+    { label: 'Timeline', action: "navTo('timeline')" },
+    { label: filePath.split(/[\\/]/).pop(), action: '' },
+  ] };
+  state.navStack.push({
+    page: state.currentPage,
+    sessionId: state.selectedSessionId,
+    context: state.navContext,
+    filter: { ...state.timelineFilter },
+  });
+  state.navContext = ctx;
+  state.selectedSessionId = null;
+  updateContextBar();
+  showPageDirect('timeline');
+  document.getElementById('timelineHeader').style.display = 'none';
+  document.getElementById('tlAgentStats').innerHTML = '';
+  const events = await api(`/api/events/by-file?path=${encodeURIComponent(filePath)}&limit=200`);
+  state.timelineEvents = events || [];
+  renderTimeline();
+}
+
+function showPageDirect(name) {
+  state.currentPage = name;
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const target = document.getElementById('page-' + name);
+  if (target) target.classList.add('active');
+  document.querySelectorAll('.bottom-nav-item').forEach(b => b.classList.remove('active'));
+  document.querySelector(`[data-page="${name}"]`)?.classList.add('active');
+  document.getElementById('contentArea').scrollTop = 0;
 }
 
 // ── Clock ──
@@ -1152,7 +1376,7 @@ async function loadHome() {
   // Recent alerts
   const alerts = await api('/api/alerts?limit=3');
   const alertsHtml = (alerts || []).map(a => `
-    <div class="alert-item sev-${a.severity}">
+    <div class="alert-item clickable sev-${a.severity}" onclick="drillAlertToEvent(${a.event_id || 0}, '${esc(a.session_id || '')}')">
       <div class="flex-between">
         <div class="alert-time">${fmtTime(a.timestamp)}</div>
         <span class="badge badge-${a.severity}">${esc(a.severity)}</span>
@@ -1220,13 +1444,14 @@ async function loadSessions() {
   renderSessions(state.sessions);
 }
 
-function renderSessions(list) {
+function renderSessions(list, projectFilter) {
   if (!list || list.length === 0) {
     document.getElementById('sessionsList').innerHTML = '<div class="empty-state"><div class="icon">📋</div><div class="msg">No sessions found yet.<br>Start using an AI coding tool and sessions will appear here.</div></div>';
     return;
   }
-  document.getElementById('sessionsList').innerHTML = list.map(s => `
-    <div class="session-item" onclick="openSession('${esc(s.id)}')">
+  const header = projectFilter ? `<div class="section-title" style="margin-bottom:10px">Sessions for ${esc(projectFilter)} (${list.length})</div>` : '';
+  document.getElementById('sessionsList').innerHTML = header + list.map(s => `
+    <div class="session-item" onclick="drillToSession('${esc(s.id)}','${escAttr(s.project_name || s.id.substring(0,8))}')">
       <div class="session-heat ${heatClass(s.danger_count, s.warn_count)}"></div>
       <div class="session-info">
         <div class="session-name">${sourceBadge(s.source_tool)} ${esc(s.project_name || s.id.substring(0,8))}</div>
@@ -1257,8 +1482,7 @@ document.getElementById('sessionSearch')?.addEventListener('input', (e) => {
 });
 
 function openSession(id) {
-  state.selectedSessionId = id;
-  showPage('timeline', id);
+  drillToSession(id, '');
 }
 
 // ── TIMELINE Page ──
@@ -1317,6 +1541,12 @@ function renderTimeline() {
   let events = state.timelineEvents;
   if (riskOnly) events = events.filter(e => e.risk_level === 'warn' || e.risk_level === 'danger');
 
+  // Apply filter chips
+  const tf = state.timelineFilter;
+  if (tf.agent) events = events.filter(e => e.agent_id === tf.agent);
+  if (tf.source) events = events.filter(e => e.source_tool === tf.source);
+  if (tf.type) events = events.filter(e => e.event_type === tf.type);
+
   const searchQ = document.getElementById('timelineSearch')?.value?.toLowerCase() || '';
   if (searchQ) events = events.filter(e =>
     (e.summary || '').toLowerCase().includes(searchQ) ||
@@ -1325,10 +1555,15 @@ function renderTimeline() {
     (e.file_paths || []).some(f => f.toLowerCase().includes(searchQ))
   );
 
+  // Render active filter chips
+  renderFilterChips();
+
   if (!events.length) {
     document.getElementById('timelineContent').innerHTML = '<div class="empty-state"><div class="icon">⏱️</div><div class="msg">No events to show.<br>Events will appear as the AI agent works.</div></div>';
     return;
   }
+
+  const isRecentView = !state.selectedSessionId;
 
   // Build agent scope headers: track which agent scopes are active
   const html = [];
@@ -1342,18 +1577,14 @@ function renderTimeline() {
 
     // Detect scope transitions
     if (isSubagent && currentAgent !== e.agent_id) {
-      // Close previous scope if open
-      if (currentAgent) {
-        // previous scope ended
-      }
-      // Count events in this agent scope
+      if (currentAgent) { /* previous scope ended */ }
       agentEventCount = 0;
       for (let j = i; j < events.length; j++) {
         if (events[j].agent_id === e.agent_id) agentEventCount++;
         else if (!events[j].agent_id?.startsWith('sub:') || events[j].agent_id !== e.agent_id) break;
       }
       currentAgent = e.agent_id;
-      html.push(`<div class="agent-scope-header">🤖 ${esc(agentName)} <span class="agent-event-count">${agentEventCount} event${agentEventCount !== 1 ? 's' : ''}</span></div>`);
+      html.push(`<div class="agent-scope-header" onclick="setFilter('agent','${escAttr(e.agent_id)}')" style="cursor:pointer" title="Filter to this agent">🤖 ${esc(agentName)} <span class="agent-event-count">${agentEventCount} event${agentEventCount !== 1 ? 's' : ''}</span></div>`);
     } else if (!isSubagent && currentAgent) {
       currentAgent = null;
     }
@@ -1361,15 +1592,17 @@ function renderTimeline() {
     const files = (e.file_paths || []).filter(f => f);
     const fileHtml = files.map(f => `<span class="tl-file" onclick="event.stopPropagation();viewFile('${escAttr(f)}')" title="${esc(f)}">${esc(f.split(/[\\/]/).pop())}</span>${fileActionButtons(f)}`).join('');
     const detail = buildDetail(e);
-    const agentBadge = isSubagent ? `<span class="agent-badge">🤖 ${esc(e.agent_id)}</span>` : '';
+    const agentBadge = isSubagent ? `<span class="agent-badge" onclick="event.stopPropagation();setFilter('agent','${escAttr(e.agent_id)}')" title="Filter by agent" style="cursor:pointer">🤖 ${esc(e.agent_id)}</span>` : '';
     const subagentDetail = e.event_type === 'subagent_spawn' && e.parameters ? buildSubagentDetail(e.parameters) : '';
+    const sessionLink = isRecentView && e.session_id ? `<span class="tl-session-link" onclick="event.stopPropagation();drillToSession('${esc(e.session_id)}','')">📋 ${esc(e.session_id.substring(0,8))}</span>` : '';
+    const sourceBadgeHtml = e.source_tool && e.source_tool !== 'vscode-copilot' ? `<span onclick="event.stopPropagation();setFilter('source','${escAttr(e.source_tool)}')" style="cursor:pointer">${sourceBadge(e.source_tool)}</span>` : '';
     html.push(`
-      <div class="tl-item${isSubagent ? ' subagent' : ''} risk-${e.risk_level}" onclick="this.classList.toggle('expanded')">
-        <div class="tl-time">${fmtTime(e.timestamp)}</div>
+      <div class="tl-item${isSubagent ? ' subagent' : ''} risk-${e.risk_level}" data-event-id="${e.id || ''}" onclick="this.classList.toggle('expanded')">
+        <div class="tl-time">${fmtTime(e.timestamp)}${sessionLink}</div>
         <div class="tl-summary"><span class="icon">${icon(e.event_type)}</span> ${esc(e.summary)}</div>
         <div class="tl-meta">
-          <span class="badge badge-${e.risk_level}">${e.risk_level}</span>
-          ${e.source_tool && e.source_tool !== 'vscode-copilot' ? sourceBadge(e.source_tool) : ''}
+          <span class="badge badge-${e.risk_level}" onclick="event.stopPropagation();setFilter('type','${escAttr(e.event_type)}')" style="cursor:pointer" title="Filter by type">${e.risk_level}</span>
+          ${sourceBadgeHtml}
           ${agentBadge}
           ${fileHtml}
         </div>
@@ -1379,6 +1612,42 @@ function renderTimeline() {
   }
 
   document.getElementById('timelineContent').innerHTML = html.join('');
+}
+
+// ── Timeline filter chip management ──
+function setFilter(key, value) {
+  if (state.timelineFilter[key] === value) {
+    delete state.timelineFilter[key];
+  } else {
+    state.timelineFilter[key] = value;
+  }
+  renderTimeline();
+}
+
+function clearFilters() {
+  state.timelineFilter = {};
+  riskOnly = false;
+  document.getElementById('riskFilterBtn').classList.remove('active');
+  renderTimeline();
+}
+
+function renderFilterChips() {
+  let chipEl = document.getElementById('tlFilterChips');
+  if (!chipEl) {
+    const bar = document.getElementById('timelineSearch')?.parentElement;
+    if (!bar) return;
+    chipEl = document.createElement('div');
+    chipEl.id = 'tlFilterChips';
+    chipEl.className = 'chip-bar';
+    bar.after(chipEl);
+  }
+  const tf = state.timelineFilter;
+  const chips = [];
+  if (tf.agent) chips.push(`<span class="filter-chip active" onclick="setFilter('agent','${escAttr(tf.agent)}')">🤖 ${esc(tf.agent)} <span class="chip-x">✕</span></span>`);
+  if (tf.source) chips.push(`<span class="filter-chip active" onclick="setFilter('source','${escAttr(tf.source)}')">${esc(tf.source)} <span class="chip-x">✕</span></span>`);
+  if (tf.type) chips.push(`<span class="filter-chip active" onclick="setFilter('type','${escAttr(tf.type)}')">${esc(tf.type)} <span class="chip-x">✕</span></span>`);
+  if (chips.length > 0) chips.push(`<span class="filter-chip" onclick="clearFilters()">Clear all</span>`);
+  chipEl.innerHTML = chips.join('');
 }
 
 function buildDetail(e) {
@@ -1465,13 +1734,16 @@ async function loadSecurity() {
 
     <div class="section-title">All Alerts</div>
     ${alerts.map(a => `
-      <div class="alert-item sev-${a.severity}">
+      <div class="alert-item clickable sev-${a.severity}" onclick="drillAlertToEvent(${a.event_id || 0}, '${esc(a.session_id || '')}')">
         <div class="flex-between">
-          <div class="alert-time">${fmtTime(a.timestamp)}</div>
+          <div class="alert-time">${fmtTime(a.timestamp)}${a.session_id ? ` <span class="tl-session-link">📋 ${esc(a.session_id.substring(0,8))}</span>` : ''}</div>
           <span class="badge badge-${a.severity}">${esc(a.severity)}</span>
         </div>
         <div class="alert-msg">${esc(a.message)}</div>
-        ${!a.acknowledged ? `<button class="alert-ack" onclick="ackAlert(${a.id}, this)">✓ Acknowledge</button>` : `<button class="alert-ack done">✓ Acknowledged</button>`}
+        <div style="display:flex;gap:8px;align-items:center;margin-top:6px;">
+          ${!a.acknowledged ? `<button class="alert-ack" onclick="event.stopPropagation();ackAlert(${a.id}, this)">✓ Acknowledge</button>` : `<button class="alert-ack done">✓ Acknowledged</button>`}
+          ${a.session_id ? `<span style="font-size:.68rem;color:var(--accent);cursor:pointer" onclick="event.stopPropagation();drillAlertToEvent(${a.event_id || 0}, '${esc(a.session_id)}')">→ Go to event</span>` : ''}
+        </div>
       </div>
     `).join('')}
   `;
@@ -1551,7 +1823,7 @@ async function loadProjects() {
       const alertCount = (+p.danger_count) + (+p.warn_count);
       const badgeClass = p.danger_count > 0 ? 'badge-danger' : p.warn_count > 0 ? 'badge-warn' : 'badge-info';
       return `
-        <div class="project-card">
+        <div class="project-card clickable" onclick="drillProjectSessions('${escAttr(p.project_name || 'Unknown')}')">
           <div class="flex-between">
             <div class="project-name">${esc(p.project_name || 'Unknown')}</div>
             <span class="badge ${badgeClass}">${alertCount > 0 ? alertCount + ' alerts' : 'clean'}</span>

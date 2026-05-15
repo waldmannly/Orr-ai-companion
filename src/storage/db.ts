@@ -271,3 +271,21 @@ export function getAgentStats(sessionId: string): Array<{ agent_id: string; even
     GROUP BY agent_id ORDER BY first_seen ASC
   `).all(sessionId) as Array<{ agent_id: string; event_count: number; first_seen: string; last_seen: string }>;
 }
+
+export function getEventById(id: number): TrackerEvent | undefined {
+  const row = db.prepare('SELECT * FROM events WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+  return row ? hydrateEvent(row) : undefined;
+}
+
+export function getEventsByFile(filePath: string, limit = 100): TrackerEvent[] {
+  const rows = db.prepare(
+    `SELECT * FROM events WHERE file_paths LIKE ? ORDER BY timestamp DESC LIMIT ?`
+  ).all(`%${filePath}%`, limit) as Array<Record<string, unknown>>;
+  return rows.map(hydrateEvent);
+}
+
+export function getSessionsByProject(projectName: string, limit = 50): SessionInfo[] {
+  return db.prepare(
+    'SELECT * FROM sessions WHERE project_name = ? ORDER BY started_at DESC LIMIT ?'
+  ).all(projectName, limit) as SessionInfo[];
+}

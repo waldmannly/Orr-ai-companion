@@ -6,6 +6,7 @@ import { Config } from '../config';
 import {
   getAllSessions, getSession, getSessionEvents, getRecentEvents,
   getAlerts, acknowledgeAlert, getMemoryOps, getStats, getProjectStats, getLiveEvents, getAgentStats,
+  getEventById, getEventsByFile, getSessionsByProject,
 } from '../storage/db';
 
 export function createDashboardServer(config: Config): express.Express {
@@ -54,6 +55,29 @@ export function createDashboardServer(config: Config): express.Express {
   app.get('/api/events/live', (req, res) => {
     const since = (req.query.since as string) || new Date(Date.now() - 60000).toISOString();
     res.json(getLiveEvents(since));
+  });
+
+  // Events touching a specific file (must be before :id route)
+  app.get('/api/events/by-file', (req, res) => {
+    const filePath = req.query.path as string;
+    if (!filePath) return res.status(400).json({ error: 'Missing path' });
+    const limit = parseInt(req.query.limit as string) || 100;
+    res.json(getEventsByFile(filePath, limit));
+  });
+
+  // Single event by ID
+  app.get('/api/events/:id', (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: 'Invalid event ID' });
+    const event = getEventById(id);
+    if (!event) return res.status(404).json({ error: 'Event not found' });
+    res.json(event);
+  });
+
+  // Sessions for a project
+  app.get('/api/projects/:name/sessions', (req, res) => {
+    const limit = parseInt(req.query.limit as string) || 50;
+    res.json(getSessionsByProject(req.params.name, limit));
   });
 
   // Alerts
