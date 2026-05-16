@@ -23,6 +23,10 @@ import {
   getIntervention, resolveIntervention, denyAllPending, getInterventionStats,
   getAutoDenyTimeout, setAutoDenyTimeout,
 } from '../guardrails/intervention';
+import {
+  getSessionPrompts, getRecentPrompts, getProjectPrompts, searchPrompts,
+  getPromptStats, generateCrashRecovery,
+} from '../prompts';
 
 // SSE — broadcast events to connected dashboard clients
 const sseClients = new Set<express.Response>();
@@ -566,6 +570,42 @@ export function createDashboardServer(config: Config): express.Express {
     const health = getSessionHealthMetrics(status.sessionId);
     const violations = getGuardrailViolations(status.sessionId, 10);
     res.json({ active: true, ...status, health, recentViolations: violations });
+  });
+
+  // ── Prompt History ──
+
+  app.get('/api/prompts', (req, res) => {
+    const limit = parseInt(req.query.limit as string) || 50;
+    res.json(getRecentPrompts(limit));
+  });
+
+  app.get('/api/prompts/stats', (_req, res) => {
+    res.json(getPromptStats());
+  });
+
+  app.get('/api/prompts/search', (req, res) => {
+    const q = req.query.q as string;
+    if (!q || q.length < 2) return res.status(400).json({ error: 'Query must be at least 2 chars' });
+    const limit = parseInt(req.query.limit as string) || 50;
+    res.json(searchPrompts(q, limit));
+  });
+
+  app.get('/api/sessions/:id/prompts', (req, res) => {
+    res.json(getSessionPrompts(req.params.id));
+  });
+
+  app.get('/api/projects/:name/prompts', (req, res) => {
+    const limit = parseInt(req.query.limit as string) || 100;
+    res.json(getProjectPrompts(req.params.name, limit));
+  });
+
+  // ── Crash Recovery ──
+
+  app.get('/api/sessions/:id/recovery', (req, res) => {
+    const recentCount = parseInt(req.query.recent as string) || 5;
+    const ctx = generateCrashRecovery(req.params.id, recentCount);
+    if (!ctx) return res.status(404).json({ error: 'Session not found or no prompts recorded' });
+    res.json(ctx);
   });
 
   // Fallback — serve index.html for SPA routes

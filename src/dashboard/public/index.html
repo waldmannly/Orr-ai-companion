@@ -1450,6 +1450,81 @@
   }
   .int-resolved-label.denied { color: var(--red); background: rgba(248,81,73,.1); }
   .int-resolved-label.approved { color: var(--green); background: rgba(63,185,80,.1); }
+
+  /* ── Prompt History Page ── */
+  .prompt-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 12px 14px;
+    margin-bottom: 10px;
+    cursor: pointer;
+    transition: border-color .15s;
+  }
+  .prompt-card:hover { border-color: var(--accent); }
+  .prompt-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+    font-size: .75rem;
+    color: var(--text-dim);
+  }
+  .prompt-seq {
+    background: var(--accent);
+    color: #000;
+    font-weight: 700;
+    font-size: .7rem;
+    padding: 1px 7px;
+    border-radius: 10px;
+    margin-right: 6px;
+  }
+  .prompt-text {
+    font-size: .83rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 120px;
+    overflow: hidden;
+    position: relative;
+  }
+  .prompt-text.expanded { max-height: none; }
+  .prompt-expand {
+    display: inline-block;
+    margin-top: 4px;
+    font-size: .75rem;
+    color: var(--accent);
+    cursor: pointer;
+  }
+  .recovery-box {
+    background: var(--surface2);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-sm);
+    padding: 14px;
+    font-family: var(--mono);
+    font-size: .78rem;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 400px;
+    overflow-y: auto;
+    position: relative;
+  }
+  .copy-btn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: var(--accent);
+    color: #000;
+    border: none;
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: .72rem;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: var(--font);
+  }
+  .copy-btn:hover { opacity: .8; }
 </style>
 </head>
 <body>
@@ -1554,6 +1629,12 @@
       <div id="complianceContent"><div class="skeleton"></div></div>
     </div>
 
+    <!-- PAGE: PROMPTS -->
+    <div class="page" id="page-prompts">
+      <h2 style="margin:0 0 12px">💬 Prompt History</h2>
+      <div id="promptsContent"><div class="skeleton"></div></div>
+    </div>
+
   </div>
 
   <!-- Bottom Nav -->
@@ -1586,6 +1667,9 @@
     </button>
     <button class="bottom-nav-item" data-page="compliance">
       <span class="bottom-nav-icon">📋</span>Audit
+    </button>
+    <button class="bottom-nav-item" data-page="prompts">
+      <span class="bottom-nav-icon">💬</span>Prompts
     </button>
     <button class="bottom-nav-item" data-page="settings">
       <span class="bottom-nav-icon">⚙️</span>Settings
@@ -2301,6 +2385,7 @@ function showPage(name, sessionId) {
   else if (name === 'trust') loadTrust();
   else if (name === 'guardrails') loadGuardrails();
   else if (name === 'compliance') loadCompliance();
+  else if (name === 'prompts') loadPrompts();
   else if (name === 'settings') loadSettings();
 }
 
@@ -3578,6 +3663,194 @@ async function generateReport() {
   } catch (err) {
     el.innerHTML = '<span style="color:var(--red)">Failed to generate report</span>';
   }
+}
+
+// ══════════════════════════════════════════════════
+// ── PROMPTS PAGE ──
+// ══════════════════════════════════════════════════
+
+async function loadPrompts() {
+  const el = document.getElementById('promptsContent');
+  try {
+    const [prompts, stats] = await Promise.all([
+      api('/api/prompts?limit=100'),
+      api('/api/prompts/stats'),
+    ]);
+
+    let html = '';
+
+    // Stats card
+    if (stats) {
+      html += `
+        <div class="card" style="margin-bottom:12px;">
+          <h3 style="margin:0 0 8px;">📊 Prompt Stats</h3>
+          <div class="setting-row"><span>Total Prompts</span><span>${stats.totalPrompts}</span></div>
+          <div class="setting-row"><span>Sessions with Prompts</span><span>${stats.totalSessions}</span></div>
+          <div class="setting-row"><span>Avg per Session</span><span>${stats.avgPromptsPerSession}</span></div>
+          <div class="setting-row"><span>Avg Tokens per Prompt</span><span>${stats.avgTokensPerPrompt}</span></div>
+        </div>`;
+    }
+
+    // Search
+    html += `
+      <div style="margin-bottom:12px;">
+        <input type="text" class="filter-input" style="width:100%;" placeholder="🔍 Search prompts..." id="promptSearchInput" oninput="debouncePromptSearch(this.value)">
+      </div>
+      <div id="promptSearchResults" style="display:none;margin-bottom:12px;"></div>
+    `;
+
+    // Recent prompts
+    if (!prompts || prompts.length === 0) {
+      html += '<div class="empty-state">No prompts captured yet. Prompts will appear here as you interact with AI agents. 💬</div>';
+    } else {
+      html += '<h3 style="margin:0 0 8px;">Recent Prompts</h3>';
+
+      // Group by session
+      const grouped = {};
+      for (const p of prompts) {
+        if (!grouped[p.session_id]) grouped[p.session_id] = { provider: p.provider, project: p.project_name, prompts: [] };
+        grouped[p.session_id].prompts.push(p);
+      }
+
+      for (const [sessionId, group] of Object.entries(grouped)) {
+        const g = group;
+        html += `
+          <div style="margin-bottom:16px;">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+              <span class="badge badge-muted">${esc(g.provider || '?')}</span>
+              <span style="font-size:.8rem;color:var(--text-dim);">${esc(g.project || 'unknown')}</span>
+              <span style="font-size:.75rem;color:var(--text-dim);margin-left:auto;">${g.prompts.length} prompts</span>
+              <button class="export-btn" style="font-size:.7rem;padding:3px 8px;" onclick="showRecovery('${sessionId}')">🔄 Recovery</button>
+            </div>`;
+
+        for (const p of g.prompts.slice(0, 10)) {
+          const preview = p.content.length > 300 ? p.content.substring(0, 300) : p.content;
+          const needsExpand = p.content.length > 300;
+          html += `
+            <div class="prompt-card" onclick="this.querySelector('.prompt-text')?.classList.toggle('expanded')">
+              <div class="prompt-header">
+                <span><span class="prompt-seq">#${p.seq}</span>${fmtTime(p.timestamp)}</span>
+                <span>~${p.token_count} tokens</span>
+              </div>
+              <div class="prompt-text">${esc(preview)}${needsExpand ? '...' : ''}</div>
+              ${needsExpand ? '<span class="prompt-expand">Click to expand</span>' : ''}
+            </div>`;
+        }
+        if (g.prompts.length > 10) {
+          html += `<div style="text-align:center;font-size:.8rem;color:var(--text-dim);padding:4px;">+ ${g.prompts.length - 10} more prompts</div>`;
+        }
+        html += '</div>';
+      }
+    }
+
+    el.innerHTML = html;
+  } catch (err) {
+    el.innerHTML = '<div class="error">Failed to load prompt history</div>';
+  }
+}
+
+let promptSearchTimer;
+function debouncePromptSearch(query) {
+  clearTimeout(promptSearchTimer);
+  promptSearchTimer = setTimeout(() => searchPromptsUI(query), 300);
+}
+
+async function searchPromptsUI(query) {
+  const el = document.getElementById('promptSearchResults');
+  if (!query || query.length < 2) { el.style.display = 'none'; return; }
+  try {
+    const results = await api(`/api/prompts/search?q=${encodeURIComponent(query)}&limit=20`);
+    if (!results || results.length === 0) {
+      el.style.display = 'block';
+      el.innerHTML = '<div style="padding:8px;color:var(--text-dim);font-size:.8rem;">No matching prompts</div>';
+      return;
+    }
+    el.style.display = 'block';
+    let html = `<div style="font-size:.75rem;color:var(--text-dim);margin-bottom:4px;">${results.length} result(s)</div>`;
+    for (const p of results) {
+      html += `
+        <div class="prompt-card" onclick="this.querySelector('.prompt-text')?.classList.toggle('expanded')">
+          <div class="prompt-header">
+            <span><span class="prompt-seq">#${p.seq}</span>${esc(p.provider)} · ${esc(p.project_name)}</span>
+            <span>${fmtTime(p.timestamp)}</span>
+          </div>
+          <div class="prompt-text">${esc(p.content.substring(0, 400))}${p.content.length > 400 ? '...' : ''}</div>
+        </div>`;
+    }
+    el.innerHTML = html;
+  } catch (err) {
+    el.style.display = 'block';
+    el.innerHTML = '<div class="error">Search failed</div>';
+  }
+}
+
+async function showRecovery(sessionId) {
+  const el = document.getElementById('promptsContent');
+  try {
+    const ctx = await api(`/api/sessions/${sessionId}/recovery`);
+    if (!ctx) { showToast('warn', 'No recovery data for this session'); return; }
+
+    let html = `
+      <button class="export-btn" style="margin-bottom:12px;" onclick="loadPrompts()">← Back to Prompts</button>
+      <h3 style="margin:0 0 12px;">🔄 Crash Recovery — ${esc(ctx.project || 'Session')}</h3>
+
+      <div class="card" style="margin-bottom:12px;">
+        <h3 style="margin:0 0 8px;">Session Info</h3>
+        <div class="setting-row"><span>Provider</span><span class="badge badge-muted">${esc(ctx.provider)}</span></div>
+        <div class="setting-row"><span>Project</span><span>${esc(ctx.project)}</span></div>
+        ${ctx.branch ? `<div class="setting-row"><span>Branch</span><span class="badge badge-info">${esc(ctx.branch)}</span></div>` : ''}
+        <div class="setting-row"><span>Started</span><span>${fmtTime(ctx.startedAt)}</span></div>
+        <div class="setting-row"><span>Last Activity</span><span>${fmtTime(ctx.lastActivityAt)}</span></div>
+        <div class="setting-row"><span>Total Prompts</span><span>${ctx.totalPrompts}</span></div>
+        <div class="setting-row"><span>Total Events</span><span>${ctx.totalEvents}</span></div>
+      </div>
+
+      <div class="card" style="margin-bottom:12px;">
+        <h3 style="margin:0 0 8px;">📋 Work Summary</h3>
+        <div style="font-size:.82rem;line-height:1.6;white-space:pre-wrap;">${esc(ctx.workSummary)}</div>
+      </div>`;
+
+    if (ctx.filesTouched.length > 0) {
+      html += `
+        <div class="card" style="margin-bottom:12px;">
+          <h3 style="margin:0 0 8px;">📄 Files Touched (${ctx.filesTouched.length})</h3>
+          ${ctx.filesTouched.slice(0, 20).map(f => `<div style="font-family:var(--mono);font-size:.75rem;padding:2px 0;color:var(--text-dim);">${esc(f)}</div>`).join('')}
+          ${ctx.filesTouched.length > 20 ? `<div style="color:var(--text-dim);font-size:.75rem;">... +${ctx.filesTouched.length - 20} more</div>` : ''}
+        </div>`;
+    }
+
+    if (ctx.recentPrompts.length > 0) {
+      html += '<h3 style="margin:0 0 8px;">💬 Recent Prompts</h3>';
+      for (const p of ctx.recentPrompts) {
+        html += `
+          <div class="prompt-card">
+            <div class="prompt-header"><span class="prompt-seq">#${p.seq}</span><span>${fmtTime(p.timestamp)}</span></div>
+            <div class="prompt-text expanded">${esc(p.content)}</div>
+          </div>`;
+      }
+    }
+
+    // Recovery prompt — the main feature
+    html += `
+      <div class="card" style="margin-top:12px;margin-bottom:12px;position:relative;">
+        <h3 style="margin:0 0 8px;">🚀 Recovery Prompt — Copy & Paste to Resume</h3>
+        <button class="copy-btn" onclick="copyRecovery()">📋 Copy</button>
+        <div class="recovery-box" id="recoveryText">${esc(ctx.recoveryPrompt)}</div>
+      </div>`;
+
+    el.innerHTML = html;
+  } catch (err) {
+    showToast('danger', 'Failed to load recovery context');
+  }
+}
+
+function copyRecovery() {
+  const text = document.getElementById('recoveryText')?.textContent || '';
+  navigator.clipboard.writeText(text).then(() => {
+    showToast('info', 'Recovery prompt copied to clipboard!');
+  }).catch(() => {
+    showToast('warn', 'Failed to copy — try selecting manually');
+  });
 }
 
 // ── Live polling (every 5s when on any page) ──

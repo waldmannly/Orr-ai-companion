@@ -129,7 +129,7 @@ export class GeminiCliProvider implements LogProvider {
             command: null,
             parameters: null,
             duration_ms: null,
-            raw_log: line.substring(0, 500),
+            raw_log: line.substring(0, 50000),
             source_tool: 'gemini-cli',
           };
         }

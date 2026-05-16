@@ -13,6 +13,7 @@ import { createIntervention } from '../guardrails/intervention';
 import { updateTrustScore } from '../trust';
 import { appendToChain, initHashChain } from '../compliance';
 import { evaluatePackRules, loadPacksFromDirectory } from '../rules/packs';
+import { insertPrompt, getSessionPromptCount } from '../prompts';
 import { execSync } from 'child_process';
 
 export class Watcher {
@@ -201,6 +202,25 @@ export class Watcher {
     const eventId = insertEvent(event);
     event.id = eventId;
 
+    // Capture full prompt text for user messages
+    if (event.event_type === 'user_message') {
+      const fullText = this.extractFullPrompt(event);
+      if (fullText) {
+        const seq = getSessionPromptCount(file.sessionId) + 1;
+        const provider = this.sessionProvider.get(file.sessionId);
+        insertPrompt({
+          event_id: eventId,
+          session_id: file.sessionId,
+          timestamp: event.timestamp,
+          content: fullText,
+          provider: provider?.id || event.source_tool || '',
+          project_name: file.projectName || '',
+          token_count: Math.max(1, Math.round(fullText.length / 4)),
+          seq,
+        });
+      }
+    }
+
     // Append to compliance hash chain
     appendToChain(event);
 
@@ -347,6 +367,56 @@ export class Watcher {
       warn_count: counters.warn,
       source_tool: provider?.id || 'unknown',
     });
+  }
+
+  /**
+   * Extract the full untruncated prompt text from a user_message event.
+   * The raw_log contains the original JSONL line from the transcript.
+   * We parse it to get the full content without the 200-char summary truncation.
+   */
+  private extractFullPrompt(event: { summary: string; raw_log: string; source_tool: string }): string | null {
+    // Try to parse the raw JSONL line for the full content
+    if (event.raw_log) {
+      try {
+        const raw = JSON.parse(event.raw_log);
+        // VS Code Copilot format
+        if (raw.data?.content && typeof raw.data.content === 'string') {
+          return raw.data.content;
+        }
+        // Claude Code format
+        if (raw.message?.content) {
+          if (typeof raw.message.content === 'string') return raw.message.content;
+          if (Array.isArray(raw.message.content)) {
+            const texts = raw.message.content
+              .filter((c: Record<string, unknown>) => c.type === 'text' && c.text)
+              .map((c: Record<string, unknown>) => c.text as string);
+            if (texts.length > 0) return texts.join('\n');
+          }
+        }
+        // Gemini CLI format
+        if (raw.parts && Array.isArray(raw.parts)) {
+          const texts = raw.parts
+            .filter((p: Record<string, unknown>) => p.text)
+            .map((p: Record<string, unknown>) => p.text as string);
+          if (texts.length > 0) return texts.join('\n');
+        }
+        // Generic: content field
+        if (typeof raw.content === 'string') return raw.content;
+        if (Array.isArray(raw.content)) {
+          const texts = raw.content
+            .filter((c: Record<string, unknown>) => typeof c === 'string' || c?.text)
+            .map((c: unknown) => typeof c === 'string' ? c : (c as Record<string, unknown>).text as string);
+          if (texts.length > 0) return texts.join('\n');
+        }
+      } catch {
+        // raw_log isn't valid JSON — fall through
+      }
+    }
+
+    // Fallback: extract from summary (strip "User: " prefix and quotes)
+    const summary = event.summary || '';
+    const match = summary.match(/^User:\s*"(.+)"$/s);
+    return match ? match[1] : (summary.replace(/^User:\s*/, '') || null);
   }
 
   stop() {

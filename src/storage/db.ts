@@ -191,6 +191,24 @@ function migrate() {
     `);
     db.pragma('user_version = 1');
   }
+
+  // Prompts table for full untruncated prompt history
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS prompts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_id INTEGER NOT NULL,
+      session_id TEXT NOT NULL,
+      timestamp TEXT NOT NULL,
+      content TEXT NOT NULL,
+      provider TEXT NOT NULL DEFAULT '',
+      project_name TEXT NOT NULL DEFAULT '',
+      token_count INTEGER NOT NULL DEFAULT 0,
+      seq INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_prompts_session ON prompts(session_id);
+    CREATE INDEX IF NOT EXISTS idx_prompts_timestamp ON prompts(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_prompts_event ON prompts(event_id);
+  `);
 }
 
 // ── Retention cleanup ──

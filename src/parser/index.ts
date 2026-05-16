@@ -186,7 +186,7 @@ export function parseTranscriptLine(line: string, sessionId: string, workspace: 
       command: null,
       parameters: null,
       duration_ms: null,
-      raw_log: line.substring(0, 500),
+      raw_log: line.substring(0, 50000),
       source_tool: 'vscode-copilot',
     };
   }
