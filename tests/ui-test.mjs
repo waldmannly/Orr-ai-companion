@@ -37,7 +37,7 @@ assert('Index HTML serves (200)', page.status === 200);
 assert('HTML has correct title', page.text.includes('<title>AL Companion Tracker</title>'));
 assert('HTML has phone-frame layout', page.text.includes('class="phone-frame"'));
 assert('HTML has bottom nav', page.text.includes('class="bottom-nav"'));
-assert('HTML has 21 nav buttons', (page.text.match(/<button[^>]*data-page="/g) || []).length === 21);
+assert('HTML has 22 nav buttons', (page.text.match(/<button[^>]*data-page="/g) || []).length === 22);
 assert('HTML has Home page', page.text.includes('id="page-home"'));
 assert('HTML has Sessions page', page.text.includes('id="page-sessions"'));
 assert('HTML has Timeline page', page.text.includes('id="page-timeline"'));
@@ -401,6 +401,7 @@ assert('HTML has Team page', page.text.includes('id="page-team"'));
 assert('HTML has Response page', page.text.includes('id="page-response"'));
 assert('HTML has Replay page', page.text.includes('id="page-replay"'));
 assert('HTML has Linked Sessions page', page.text.includes('id="page-linked"'));
+assert('HTML has Policy page', page.text.includes('id="page-policy"'));
 assert('HTML has Settings page', page.text.includes('id="page-settings"'));
 
 assert('HTML has loadExport function', page.text.includes('function loadExport('));
@@ -412,6 +413,7 @@ assert('HTML has loadTeam function', page.text.includes('function loadTeam('));
 assert('HTML has loadResponse function', page.text.includes('function loadResponse('));
 assert('HTML has loadReplay function', page.text.includes('function loadReplay('));
 assert('HTML has loadLinkedSessions function', page.text.includes('function loadLinkedSessions('));
+assert('HTML has loadPolicy function', page.text.includes('function loadPolicy('));
 
 assert('Nav has export button', page.text.includes('data-page="export"'));
 assert('Nav has agents button', page.text.includes('data-page="agents"'));
@@ -422,6 +424,7 @@ assert('Nav has team button', page.text.includes('data-page="team"'));
 assert('Nav has response button', page.text.includes('data-page="response"'));
 assert('Nav has replay button', page.text.includes('data-page="replay"'));
 assert('Nav has linked button', page.text.includes('data-page="linked"'));
+assert('Nav has policy button', page.text.includes('data-page="policy"'));
 
 // ══════════════════════════════════════════════════════
 // 12. EXPORT & REPORTING API
@@ -814,6 +817,43 @@ assert('Settings returns 200', config.status === 200);
 assert('Settings has dashboard port', typeof config.data?.dashboard?.port === 'number');
 assert('Settings has tokenBudget', config.data?.tokenBudget !== undefined);
 assert('Settings has guardrails', config.data?.guardrails !== undefined);
+
+// ══════════════════════════════════════════════════════
+// 29. POLICY ENGINE API
+// ══════════════════════════════════════════════════════
+console.log('\n═══ 29. POLICY ENGINE API ═══');
+
+const policy = await api('/api/policy');
+assert('Policy returns 200', policy.status === 200);
+assert('Policy has tier', typeof policy.data?.tier === 'string');
+
+const policySummary = await api('/api/policy/summary');
+assert('Policy summary returns 200', policySummary.status === 200);
+assert('Policy summary has tier', typeof policySummary.data?.tier === 'string');
+
+const policyTier = await api('/api/policy/tier');
+assert('Policy tier returns 200', policyTier.status === 200);
+assert('Policy tier has tier field', typeof policyTier.data?.tier === 'string');
+
+const policyViolations = await api('/api/policy/violations');
+assert('Policy violations returns 200', policyViolations.status === 200);
+assert('Policy violations returns array', Array.isArray(policyViolations.data));
+
+const policyMetrics = await api('/api/policy/metrics');
+assert('Policy metrics returns 200', policyMetrics.status === 200);
+assert('Policy metrics returns array', Array.isArray(policyMetrics.data));
+
+const policyHistory = await api('/api/policy/history');
+assert('Policy history returns 200', policyHistory.status === 200);
+assert('Policy history returns array', Array.isArray(policyHistory.data));
+
+const checkRes = await fetch(BASE + '/api/policy/check', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ event_type: 'file_write', file_paths: ['/test.ts'] }) });
+const checkResult = { status: checkRes.status, data: await checkRes.json().catch(() => null) };
+assert('Policy check returns 200', checkResult.status === 200);
+assert('Policy check has allowed field', typeof checkResult.data?.allowed === 'boolean');
+
+const effectiveGuardrails = await api('/api/policy/effective-guardrails');
+assert('Effective guardrails returns 200', effectiveGuardrails.status === 200);
 
 // ══════════════════════════════════════════════════════
 // SUMMARY

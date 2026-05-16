@@ -166,3 +166,67 @@ There is no real competitor in "AI agent observability for individual developers
 3. **It gives you data nobody else has** (trust scores, behavior patterns, cost tracking)
 
 Build for the "holy shit" moment. Everything else follows.
+
+---
+
+## Enterprise Policy Engine: Three Deployment Tiers
+
+The tracker scales from a solo dev to a Fortune 500. The policy engine enables this with three tiers:
+
+### Individual (Default)
+- No `policy.json` required — everything works out of the box
+- All settings user-controlled
+- RBAC disabled (all operations allowed)
+- Perfect for indie devs and personal projects
+
+### Team
+- `policy.json` defines org-wide guardrails
+- Roles: admin, operator, viewer
+- Policy rules can `alert` or `block` actions
+- Blocked command lists, scope restrictions, provider allowlists
+- Violations logged for team review
+
+### Enterprise
+- Central policy management pushed to all instances
+- **Strictest-wins merge**: org sets the floor, users can only tighten
+  - Blocked commands: union (org + user)
+  - Block patterns: union (org + user)
+  - Network allowlist: intersection (org restricts, user can't widen)
+  - Token budgets: lower-wins
+  - Mode: `block` overrides `alert`
+- Locked fields: org can freeze settings (e.g., `guardrails.mode = block`)
+- Full audit trail: policy change history, violation records, metrics
+- RBAC enforcement on all API endpoints
+- Evidence generation for SOC2/ISO compliance
+
+### Policy File Example (`policy.json`)
+
+```json
+{
+  "tier": "enterprise",
+  "orgId": "microsoft",
+  "orgName": "Microsoft",
+  "version": 1,
+  "allowedProviders": ["vscode-copilot"],
+  "lockedFields": ["guardrails.mode", "guardrails.blockedCommands"],
+  "guardrails": {
+    "blockedCommands": ["rm -rf /", "curl | sh"],
+    "scopeBlockPatterns": ["**/secrets/**", "**/.env*"],
+    "networkAllowlist": ["github.com", "npmjs.org"],
+    "maxTokenBudget": 500000,
+    "minMode": "block"
+  },
+  "rules": [
+    {
+      "id": "no-prod-deploy",
+      "name": "Block production deployments",
+      "category": "command_block",
+      "value": "deploy --prod",
+      "enforcement": "block",
+      "enabled": true
+    }
+  ]
+}
+```
+
+This architecture means: a solo dev never sees the policy system (it's invisible at individual tier), but when Microsoft rolls this out to 10,000 engineers, they get centralized control without modifying any developer workflows.

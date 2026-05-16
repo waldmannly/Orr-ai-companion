@@ -59,6 +59,12 @@ import {
   getAutoResponseConfig, updateAutoResponseConfig,
   getAutoActions, getAutoResponseStats, pauseSession, resumeSession, reverseAction,
 } from '../response';
+import {
+  getPolicy, getTier, loadPolicy, applyPolicy, checkPolicy,
+  mergeGuardrails, isFieldLocked, hasPermission, requirePermission,
+  getPolicyViolations, getPolicyMetrics, getPolicySummary, getPolicyHistory,
+  recordPolicyViolation, recordPolicyMetric,
+} from '../policy';
 
 // SSE — broadcast events to connected dashboard clients
 const sseClients = new Set<express.Response>();
@@ -1014,6 +1020,58 @@ export function createDashboardServer(config: Config): express.Express {
     const action = reverseAction(Number(req.params.id), 'user');
     if (!action) return res.status(404).json({ error: 'Action not found or already reversed' });
     res.json(action);
+  });
+
+  // ── Policy Engine ──
+
+  app.get('/api/policy', (_req, res) => {
+    res.json(getPolicy());
+  });
+
+  app.get('/api/policy/summary', (_req, res) => {
+    res.json(getPolicySummary());
+  });
+
+  app.get('/api/policy/tier', (_req, res) => {
+    res.json({ tier: getTier() });
+  });
+
+  app.get('/api/policy/violations', (req, res) => {
+    const limit = Math.min(Number(req.query.limit) || 100, 500);
+    const category = req.query.category as string | undefined;
+    res.json(getPolicyViolations({ limit, category }));
+  });
+
+  app.get('/api/policy/metrics', (req, res) => {
+    const name = req.query.name as string | undefined;
+    const since = req.query.since as string | undefined;
+    res.json(getPolicyMetrics({ name, since }));
+  });
+
+  app.get('/api/policy/history', (_req, res) => {
+    res.json(getPolicyHistory());
+  });
+
+  app.post('/api/policy/check', (req, res) => {
+    const result = checkPolicy(req.body);
+    res.json(result);
+  });
+
+  app.put('/api/policy', (req, res) => {
+    try {
+      const updated = applyPolicy(req.body, (req as any).teamUser?.name || 'api');
+      res.json(updated);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/policy/field-locked/:field', (req, res) => {
+    res.json({ locked: isFieldLocked(req.params.field) });
+  });
+
+  app.get('/api/policy/effective-guardrails', (_req, res) => {
+    res.json(mergeGuardrails(config.guardrails));
   });
 
   // Fallback — serve index.html for SPA routes

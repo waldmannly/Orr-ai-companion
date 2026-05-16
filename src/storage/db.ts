@@ -336,6 +336,47 @@ function migrate() {
     CREATE INDEX IF NOT EXISTS idx_autoact_session ON auto_actions(session_id);
     CREATE INDEX IF NOT EXISTS idx_autoact_type ON auto_actions(action_type);
   `);
+
+  // Policy engine tables
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS org_policies (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      org_id TEXT NOT NULL,
+      org_name TEXT NOT NULL,
+      version INTEGER NOT NULL,
+      tier TEXT NOT NULL,
+      policy_json TEXT NOT NULL,
+      applied_at TEXT NOT NULL,
+      applied_by TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_orgpol_orgid ON org_policies(org_id);
+
+    CREATE TABLE IF NOT EXISTS policy_violations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp TEXT NOT NULL,
+      session_id TEXT,
+      user_id TEXT,
+      rule_id TEXT NOT NULL,
+      rule_name TEXT NOT NULL,
+      category TEXT NOT NULL,
+      enforcement TEXT NOT NULL,
+      detail TEXT NOT NULL,
+      resolved INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_polviol_ts ON policy_violations(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_polviol_cat ON policy_violations(category);
+
+    CREATE TABLE IF NOT EXISTS policy_metrics (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp TEXT NOT NULL,
+      metric_name TEXT NOT NULL,
+      metric_value TEXT NOT NULL,
+      session_id TEXT,
+      metadata TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_polmet_name ON policy_metrics(metric_name);
+    CREATE INDEX IF NOT EXISTS idx_polmet_ts ON policy_metrics(timestamp);
+  `);
 }
 
 // ── Retention cleanup ──

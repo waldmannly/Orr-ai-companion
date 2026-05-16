@@ -1817,6 +1817,11 @@
       <div id="linkedContent"><div class="skeleton"></div></div>
     </div>
 
+    <div class="page" id="page-policy">
+      <h2 style="margin:0 0 12px">🏢 Enterprise Policy</h2>
+      <div id="policyContent"><div class="skeleton"></div></div>
+    </div>
+
   </div>
 
   <!-- Bottom Nav -->
@@ -1882,6 +1887,9 @@
     </button>
     <button class="bottom-nav-item" data-page="linked">
       <span class="bottom-nav-icon">🔗</span>Tasks
+    </button>
+    <button class="bottom-nav-item" data-page="policy">
+      <span class="bottom-nav-icon">🏢</span>Policy
     </button>
     <button class="bottom-nav-item" data-page="settings">
       <span class="bottom-nav-icon">⚙️</span>Settings
@@ -2625,6 +2633,7 @@ function showPage(name, sessionId) {
   else if (name === 'response') loadResponse();
   else if (name === 'replay') loadReplay();
   else if (name === 'linked') loadLinkedSessions();
+  else if (name === 'policy') loadPolicy();
   else if (name === 'settings') loadSettings();
 }
 
@@ -4836,6 +4845,148 @@ async function generatePRSummary() {
     out.textContent = text;
     out.style.display = 'block';
   } catch { showToast('danger', 'Failed to generate PR summary'); }
+}
+
+// ── Policy Engine Page ──
+async function loadPolicy() {
+  const el = document.getElementById('policyContent');
+  el.innerHTML = '<div class="skeleton"></div>';
+  try {
+    const [policy, summary, violations, metrics, history] = await Promise.all([
+      api('/api/policy'),
+      api('/api/policy/summary'),
+      api('/api/policy/violations?limit=20'),
+      api('/api/policy/metrics?limit=20'),
+      api('/api/policy/history'),
+    ]);
+
+    const tierColors = { individual: 'var(--muted)', team: 'var(--accent)', enterprise: 'var(--success)' };
+    const tierLabel = summary.tier || policy.tier || 'individual';
+    const tierColor = tierColors[tierLabel] || 'var(--muted)';
+
+    let h = '';
+
+    // Tier + Overview card
+    h += `<div class="card" style="margin-bottom:12px;">
+      <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
+        <span>Policy Overview</span>
+        <span class="badge" style="background:${tierColor};color:#000;font-size:.85rem;padding:4px 10px;">${tierLabel.toUpperCase()}</span>
+      </div>`;
+
+    if (tierLabel === 'individual') {
+      h += `<div class="empty-state" style="padding:12px 0;">
+        <p>No org policy applied. Running in <strong>individual</strong> mode — all settings are user-controlled.</p>
+        <p style="font-size:.78rem;color:var(--muted);margin-top:8px;">To enable enterprise policy, place a <code>policy.json</code> in the tracker working directory.</p>
+      </div>`;
+    } else {
+      h += `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin:8px 0;">
+        <div style="text-align:center;padding:10px;background:var(--bg);border-radius:8px;">
+          <div style="font-size:1.4rem;font-weight:700;">${policy.rules?.length || 0}</div>
+          <div style="font-size:.72rem;color:var(--muted);">Rules</div>
+        </div>
+        <div style="text-align:center;padding:10px;background:var(--bg);border-radius:8px;">
+          <div style="font-size:1.4rem;font-weight:700;">${summary.violationCount || 0}</div>
+          <div style="font-size:.72rem;color:var(--muted);">Violations</div>
+        </div>
+        <div style="text-align:center;padding:10px;background:var(--bg);border-radius:8px;">
+          <div style="font-size:1.4rem;font-weight:700;">${policy.lockedFields?.length || 0}</div>
+          <div style="font-size:.72rem;color:var(--muted);">Locked Fields</div>
+        </div>
+      </div>`;
+      if (policy.orgName) h += `<div style="font-size:.82rem;color:var(--muted);margin-top:4px;">Org: <strong>${esc(policy.orgName)}</strong></div>`;
+    }
+    h += '</div>';
+
+    // Effective guardrails
+    if (tierLabel !== 'individual') {
+      h += `<div class="card" style="margin-bottom:12px;">
+        <div class="card-title">🔒 Locked Fields</div>`;
+      if (policy.lockedFields?.length) {
+        for (const f of policy.lockedFields) {
+          h += `<div style="padding:4px 0;font-size:.82rem;"><span style="color:var(--danger);">🔒</span> <code>${esc(f)}</code></div>`;
+        }
+      } else {
+        h += '<div style="font-size:.82rem;color:var(--muted);">No locked fields</div>';
+      }
+      h += '</div>';
+
+      // Rules
+      h += `<div class="card" style="margin-bottom:12px;">
+        <div class="card-title">📋 Policy Rules (${policy.rules?.length || 0})</div>`;
+      if (policy.rules?.length) {
+        for (const r of policy.rules) {
+          const enfColor = r.enforcement === 'block' ? 'var(--danger)' : r.enforcement === 'alert' ? 'var(--warning)' : 'var(--muted)';
+          h += `<div style="padding:8px 0;border-bottom:1px solid var(--border);">
+            <div style="display:flex;justify-content:space-between;">
+              <strong style="font-size:.85rem;">${esc(r.name || r.id)}</strong>
+              <span class="badge" style="background:${enfColor};color:#000;">${esc(r.enforcement)}</span>
+            </div>
+            <div style="font-size:.78rem;color:var(--muted);">${esc(r.category || '')} · ${esc(r.description || '')}</div>
+          </div>`;
+        }
+      } else {
+        h += '<div style="font-size:.82rem;color:var(--muted);">No custom rules</div>';
+      }
+      h += '</div>';
+    }
+
+    // Violations
+    h += `<div class="card" style="margin-bottom:12px;">
+      <div class="card-title">⚠️ Recent Violations</div>`;
+    if (violations?.length) {
+      for (const v of violations) {
+        const enfColor = v.enforcement === 'block' ? 'var(--danger)' : 'var(--warning)';
+        h += `<div style="padding:8px 0;border-bottom:1px solid var(--border);">
+          <div style="display:flex;justify-content:space-between;">
+            <strong style="font-size:.85rem;">${esc(v.rule_name || v.rule_id)}</strong>
+            <span class="badge" style="background:${enfColor};color:#000;">${esc(v.enforcement)}</span>
+          </div>
+          <div style="font-size:.78rem;color:var(--muted);">${fmtRelativeTime(v.timestamp)} · ${esc(v.category || '')}</div>
+          ${v.detail ? `<div style="font-size:.78rem;margin-top:4px;">${esc(v.detail)}</div>` : ''}
+        </div>`;
+      }
+    } else {
+      h += '<div class="empty-state">No violations recorded</div>';
+    }
+    h += '</div>';
+
+    // Metrics
+    h += `<div class="card" style="margin-bottom:12px;">
+      <div class="card-title">📊 Policy Metrics</div>`;
+    if (metrics?.length) {
+      for (const m of metrics) {
+        h += `<div style="padding:6px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;">
+          <span style="font-size:.82rem;">${esc(m.metric_name)}</span>
+          <span style="font-size:.82rem;font-weight:600;">${m.metric_value}</span>
+        </div>`;
+      }
+    } else {
+      h += '<div class="empty-state">No metrics recorded</div>';
+    }
+    h += '</div>';
+
+    // History
+    h += `<div class="card" style="margin-bottom:12px;">
+      <div class="card-title">📜 Policy Change History</div>`;
+    if (history?.length) {
+      for (const e of history) {
+        h += `<div style="padding:8px 0;border-bottom:1px solid var(--border);">
+          <div style="display:flex;justify-content:space-between;">
+            <strong style="font-size:.85rem;">v${e.version}</strong>
+            <span style="font-size:.72rem;color:var(--muted);">${fmtRelativeTime(e.applied_at)}</span>
+          </div>
+          <div style="font-size:.78rem;color:var(--muted);">Applied by: ${esc(e.applied_by || 'system')} · Tier: ${esc(e.tier)}</div>
+        </div>`;
+      }
+    } else {
+      h += '<div class="empty-state">No policy changes recorded</div>';
+    }
+    h += '</div>';
+
+    el.innerHTML = h;
+  } catch(err) {
+    el.innerHTML = `<div class="empty-state">Failed to load policy data: ${esc(String(err))}</div>`;
+  }
 }
 
 // ── Initial load ──

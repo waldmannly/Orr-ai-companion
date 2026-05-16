@@ -3924,6 +3924,116 @@ await testAsync('generateIncidentReport timeframe', async () => {
 });
 
 // ══════════════════════════════════════════════════
+//  35. POLICY ENGINE
+// ══════════════════════════════════════════════════
+console.log('═══ 35. Policy Engine ═══');
+
+const {
+  loadPolicy, getPolicy, getTier, isFieldLocked, mergeGuardrails: mergeGuardrailsPolicy,
+  checkPolicy, recordPolicyViolation, recordPolicyMetric,
+  getPolicyViolations, getPolicyMetrics, getPolicySummary, getPolicyHistory,
+  applyPolicy, hasPermission, requirePermission,
+} = await import('../dist/policy/index.js');
+
+test('loadPolicy returns default individual policy', () => {
+  const policy = loadPolicy();
+  assert.ok(policy);
+  assert.strictEqual(policy.tier, 'individual');
+  assert.ok(Array.isArray(policy.rules));
+});
+
+test('getPolicy returns current policy', () => {
+  const policy = getPolicy();
+  assert.ok(policy);
+  assert.strictEqual(typeof policy.tier, 'string');
+});
+
+test('getTier returns deployment tier', () => {
+  const tier = getTier();
+  assert.ok(['individual', 'team', 'enterprise'].includes(tier));
+});
+
+test('isFieldLocked returns false for individual tier', () => {
+  assert.strictEqual(isFieldLocked('guardrails.mode'), false);
+  assert.strictEqual(isFieldLocked('anything'), false);
+});
+
+test('mergeGuardrails returns config for individual tier', () => {
+  const result = mergeGuardrailsPolicy({
+    enabled: true,
+    tokenBudget: 100000,
+    scopeAllowPatterns: ['**'],
+    scopeBlockPatterns: [],
+    blockedCommands: [],
+    networkAllowlist: [],
+    mode: 'alert',
+  });
+  assert.ok(result);
+  assert.ok(Array.isArray(result.policyOverrides));
+  assert.strictEqual(result.policyOverrides.length, 0);
+});
+
+test('checkPolicy returns allowed for individual tier', () => {
+  const result = checkPolicy({ type: 'file_write', path: '/test.ts' });
+  assert.ok(result);
+  assert.strictEqual(result.allowed, true);
+});
+
+test('recordPolicyViolation inserts violation', () => {
+  recordPolicyViolation({
+    rule_id: 'test-rule',
+    rule_name: 'Test Rule',
+    category: 'test',
+    enforcement: 'alert',
+    detail: 'unit test violation',
+    session_id: 'test-session',
+  });
+  const violations = getPolicyViolations({ limit: 5 });
+  assert.ok(Array.isArray(violations));
+  assert.ok(violations.length >= 1);
+  const found = violations.find(v => v.rule_id === 'test-rule');
+  assert.ok(found);
+  assert.strictEqual(found.rule_name, 'Test Rule');
+  assert.strictEqual(found.category, 'test');
+});
+
+test('recordPolicyMetric inserts metric', () => {
+  recordPolicyMetric('test_metric', '42', 'test-session', { unit: 'count' });
+  const metrics = getPolicyMetrics({ name: 'test_metric' });
+  assert.ok(Array.isArray(metrics));
+  assert.ok(metrics.length >= 1);
+  assert.strictEqual(metrics[0].metric_name, 'test_metric');
+  assert.strictEqual(metrics[0].metric_value, '42');
+});
+
+test('getPolicySummary returns summary object', () => {
+  const summary = getPolicySummary();
+  assert.ok(summary);
+  assert.strictEqual(typeof summary.tier, 'string');
+  assert.strictEqual(typeof summary.violationCount, 'number');
+  assert.strictEqual(typeof summary.metricsCount, 'number');
+});
+
+test('getPolicyHistory returns array', () => {
+  const history = getPolicyHistory();
+  assert.ok(Array.isArray(history));
+});
+
+test('hasPermission: all roles allowed in individual tier', () => {
+  // In individual tier, hasPermission always returns true
+  assert.strictEqual(hasPermission('admin', 'policy:read'), true);
+  assert.strictEqual(hasPermission('admin', 'policy:write'), true);
+  assert.strictEqual(hasPermission('viewer', 'policy:read'), true);
+  assert.strictEqual(hasPermission('operator', 'policy:read'), true);
+  assert.strictEqual(hasPermission('unknown', 'policy:read'), true);
+});
+
+test('requirePermission returns middleware', () => {
+  const middleware = requirePermission('policy:read');
+  assert.strictEqual(typeof middleware, 'function');
+});
+
+// ══════════════════════════════════════════════════
 //  RESULTS
 // ══════════════════════════════════════════════════
 console.log('');

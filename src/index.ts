@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { loadConfig } from './config';
+import { loadPolicy } from './policy';
 import { Watcher } from './watcher';
 import { startDashboard } from './dashboard/server';
 import { runCli } from './cli';
@@ -20,6 +21,12 @@ if (args.length > 0 && !args[0].startsWith('-')) {
   console.log('');
 
   const config = loadConfig();
+
+  // Load org policy (if policy.json exists)
+  const policy = loadPolicy();
+  if (policy.tier !== 'individual') {
+    console.log(`[policy] Tier: ${policy.tier} | Org: ${policy.orgName} | Rules: ${policy.rules.length}`);
+  }
 
   // Start the watcher (ingests logs → SQLite)
   const watcher = new Watcher(config);
