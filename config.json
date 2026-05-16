@@ -29,6 +29,64 @@
     "desktopNotifications": false,
     "minSeverity": "warn"
   },
+  "alertRules": {
+    "destructive_commands": {
+      "enabled": true,
+      "minSeverity": "warn"
+    },
+    "sensitive_files": {
+      "enabled": true,
+      "minSeverity": "warn"
+    },
+    "memory_operations": {
+      "enabled": true,
+      "minSeverity": "warn"
+    },
+    "memory_injection": {
+      "enabled": true,
+      "minSeverity": "warn"
+    },
+    "deployment": {
+      "enabled": true,
+      "minSeverity": "warn"
+    },
+    "ssh_remote": {
+      "enabled": true,
+      "minSeverity": "warn"
+    },
+    "data_exfiltration": {
+      "enabled": true,
+      "minSeverity": "warn"
+    },
+    "suspicious_download": {
+      "enabled": true,
+      "minSeverity": "warn"
+    },
+    "suspicious_fetch": {
+      "enabled": true,
+      "minSeverity": "warn"
+    },
+    "network_access": {
+      "enabled": true,
+      "minSeverity": "watch"
+    },
+    "force_push": {
+      "enabled": true,
+      "minSeverity": "warn"
+    },
+    "file_operations": {
+      "enabled": false,
+      "minSeverity": "watch"
+    },
+    "git_operations": {
+      "enabled": false,
+      "minSeverity": "watch"
+    },
+    "subagent_spawn": {
+      "enabled": true,
+      "minSeverity": "watch"
+    }
+  },
   "dashboard": {
     "port": 3847,
     "host": "127.0.0.1"
@@ -36,5 +94,6 @@
   "retention": {
     "maxAgeDays": 90,
     "maxDbSizeMB": 500
-  }
+  },
+  "customProviders": []
 }

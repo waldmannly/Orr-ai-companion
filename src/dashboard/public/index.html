@@ -558,6 +558,59 @@
   .empty-state .icon { font-size: 2rem; margin-bottom: 12px; }
   .empty-state .msg { font-size: .92rem; line-height: 1.6; }
 
+  /* ── Connection status indicator ─────────────────── */
+  .conn-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: .68rem;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: rgba(63,185,80,.1);
+    color: var(--green);
+    transition: all .3s;
+  }
+  .conn-status.disconnected { background: rgba(248,81,73,.1); color: var(--red); }
+  .conn-status .conn-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+
+  /* ── Expand indicator on timeline items ──────────── */
+  .tl-item::after {
+    content: '›';
+    position: absolute;
+    right: 14px;
+    top: 14px;
+    font-size: .9rem;
+    color: var(--text-dim);
+    transition: transform .2s;
+    opacity: .5;
+  }
+  .tl-item.expanded::after { transform: rotate(90deg); opacity: 1; color: var(--accent); }
+
+  /* ── Memory scope filter ─────────────────────────── */
+  .mem-filter-bar {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+  }
+
+  /* ── Session duration ────────────────────────────── */
+  .session-duration { font-size: .72rem; color: var(--text-dim); font-family: var(--mono); }
+
+  /* ── Notification permission button ──────────────── */
+  .notif-btn {
+    padding: 6px 12px;
+    background: rgba(88,166,255,.1);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-sm);
+    color: var(--accent);
+    font-size: .75rem;
+    font-family: var(--font);
+    cursor: pointer;
+    transition: background .15s;
+  }
+  .notif-btn:hover { background: rgba(88,166,255,.2); }
+
   /* ── Loading shimmer ─────────────────────────────── */
   @keyframes shimmer { 0% { background-position: -200px 0; } 100% { background-position: 200px 0; } }
   .skeleton {
@@ -1259,7 +1312,7 @@
   <!-- Status Bar -->
   <div class="status-bar">
     <span id="clockDisplay">--:--</span>
-    <span><span class="dot live-pulse"></span> Tracker Active</span>
+    <span class="conn-status" id="connStatus"><span class="conn-dot"></span> <span id="connLabel">Connecting</span></span>
   </div>
 
   <!-- Header -->
@@ -1555,14 +1608,56 @@ function escAttr(s) {
 
 // ── SSE Real-time Connection ──
 let sseRetryTimer = null;
+let sseDebounceTimer = null;
+let sseConnected = false;
+
+function setConnStatus(connected) {
+  sseConnected = connected;
+  const el = document.getElementById('connStatus');
+  const label = document.getElementById('connLabel');
+  if (connected) {
+    el.classList.remove('disconnected');
+    label.textContent = 'Live';
+  } else {
+    el.classList.add('disconnected');
+    label.textContent = 'Reconnecting...';
+  }
+}
+
+function requestNotificationPermission() {
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
+  }
+}
+
+function sendDesktopNotification(title, body, severity) {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  const n = new Notification(title, {
+    body: body,
+    icon: severity === 'danger' ? '🚨' : '⚠️',
+    tag: 'al-tracker-' + Date.now(),
+    silent: false,
+  });
+  n.onclick = () => { window.focus(); showPage('security'); n.close(); };
+  setTimeout(() => n.close(), 10000);
+}
+
 function connectSSE() {
   const es = new EventSource('/api/events/stream');
+  es.addEventListener('connected', () => {
+    setConnStatus(true);
+  });
   es.addEventListener('event', (e) => {
+    setConnStatus(true);
     const data = JSON.parse(e.data);
-    // Auto-refresh current page
-    if (state.currentPage === 'home') loadHome();
+    // Debounce page refreshes (batch rapid events into 500ms windows)
+    if (state.currentPage === 'home') {
+      clearTimeout(sseDebounceTimer);
+      sseDebounceTimer = setTimeout(() => loadHome(), 500);
+    }
     if (state.currentPage === 'timeline' && state.selectedSessionId === data.session_id) {
-      loadTimeline(state.selectedSessionId);
+      clearTimeout(sseDebounceTimer);
+      sseDebounceTimer = setTimeout(() => loadTimeline(state.selectedSessionId), 500);
     }
     // Update new-event badge
     if (state.currentPage !== 'timeline') {
@@ -1571,22 +1666,39 @@ function connectSSE() {
     }
   });
   es.addEventListener('alert', (e) => {
+    setConnStatus(true);
     const data = JSON.parse(e.data);
     showToast(data.severity, data.message);
+    // Desktop notification for warn/danger alerts
+    if (data.severity === 'danger' || data.severity === 'warn') {
+      sendDesktopNotification(
+        data.severity === 'danger' ? '🚨 DANGER Alert' : '⚠️ Warning',
+        data.message,
+        data.severity
+      );
+    }
     if (state.currentPage === 'security') loadSecurity();
-    if (state.currentPage === 'home') loadHome();
+    if (state.currentPage === 'home') {
+      clearTimeout(sseDebounceTimer);
+      sseDebounceTimer = setTimeout(() => loadHome(), 300);
+    }
     updateNavBadges();
   });
   es.addEventListener('session-ended', (e) => {
     if (state.currentPage === 'sessions') loadSessions();
   });
   es.onerror = () => {
+    setConnStatus(false);
     es.close();
     if (sseRetryTimer) clearTimeout(sseRetryTimer);
     sseRetryTimer = setTimeout(connectSSE, 5000);
   };
+  // Mark connected after open (fallback if no 'connected' event fires)
+  es.onopen = () => setConnStatus(true);
 }
 connectSSE();
+// Request notification permission on first interaction
+document.addEventListener('click', () => requestNotificationPermission(), { once: true });
 
 // ── Toast Notifications ──
 function showToast(severity, message) {
@@ -1871,6 +1983,38 @@ function fmtDate(ts) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
+function fmtRelativeTime(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  const now = new Date();
+  const diffMs = now - d;
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return 'Just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return 'Yesterday';
+  if (days < 7) return `${days}d ago`;
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function fmtDuration(start, end) {
+  if (!start) return '';
+  const s = new Date(start);
+  const e = end ? new Date(end) : new Date();
+  const diffMs = e - s;
+  if (diffMs < 0) return '';
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return '<1m';
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  const remMins = mins % 60;
+  if (hours < 24) return remMins > 0 ? `${hours}h ${remMins}m` : `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ${hours % 24}h`;
+}
+
 function heatClass(danger, warn) {
   if (danger > 0) return 'heat-red';
   if (warn > 2) return 'heat-orange';
@@ -2049,12 +2193,14 @@ function renderSessions(list, projectFilter) {
     return;
   }
   const header = projectFilter ? `<div class="section-title" style="margin-bottom:10px">Sessions for ${esc(projectFilter)} (${list.length})</div>` : '';
-  document.getElementById('sessionsList').innerHTML = header + list.map(s => `
+  document.getElementById('sessionsList').innerHTML = header + list.map(s => {
+    const duration = fmtDuration(s.started_at, s.ended_at);
+    return `
     <div class="session-item" onclick="drillToSession('${esc(s.id)}','${escAttr(s.project_name || s.id.substring(0,8))}')">
       <div class="session-heat ${heatClass(s.danger_count, s.warn_count)}"></div>
       <div class="session-info">
-        <div class="session-name">${sourceBadge(s.source_tool)} ${esc(s.project_name || s.id.substring(0,8))} <span class="session-status ${s.ended_at ? 'ended' : 'active'}">${s.ended_at ? 'ended' : 'active'}</span></div>
-        <div class="session-meta">${fmtDate(s.started_at)} · ${esc(s.id.substring(0,8))}</div>
+        <div class="session-name">${sourceBadge(s.source_tool)} ${esc(s.project_name || s.id.substring(0,8))} <span class="session-status ${s.ended_at ? 'ended' : 'active'}">${s.ended_at ? 'ended' : '● live'}</span></div>
+        <div class="session-meta">${fmtRelativeTime(s.started_at)}${duration ? ' · ' + duration : ''}</div>
       </div>
       <div class="session-stats">
         <div class="session-stat">
@@ -2067,7 +2213,7 @@ function renderSessions(list, projectFilter) {
         </div>
       </div>
     </div>
-  `).join('');
+  `;}).join('');
 }
 
 // Search filter
@@ -2309,7 +2455,11 @@ function buildSubagentDetail(params) {
   return html;
 }
 
-document.getElementById('timelineSearch')?.addEventListener('input', () => renderTimeline());
+let tlSearchDebounce = null;
+document.getElementById('timelineSearch')?.addEventListener('input', () => {
+  clearTimeout(tlSearchDebounce);
+  tlSearchDebounce = setTimeout(() => renderTimeline(), 150);
+});
 
 // Close file viewer on Escape
 document.addEventListener('keydown', (e) => {
@@ -2395,11 +2545,25 @@ async function bulkAcknowledge() {
 async function loadMemory() {
   const ops = await api('/api/memory?limit=100');
   state.memory = ops || [];
+  state.memScopeFilter = state.memScopeFilter || 'all';
+  renderMemory();
+}
 
+function setMemScope(scope) {
+  state.memScopeFilter = scope;
+  renderMemory();
+}
+
+function renderMemory() {
+  const ops = state.memory;
   if (!ops || ops.length === 0) {
     document.getElementById('memoryContent').innerHTML = '<div class="empty-state"><div class="icon">🧠</div><div class="msg">No memory operations recorded yet.</div></div>';
     return;
   }
+
+  const scope = state.memScopeFilter || 'all';
+  const filtered = scope === 'all' ? ops : ops.filter(o => o.memory_scope === scope);
+  const scopes = [...new Set(ops.map(o => o.memory_scope))];
 
   document.getElementById('memoryContent').innerHTML = `
     <div class="stat-grid">
@@ -2411,9 +2575,17 @@ async function loadMemory() {
         <div class="stat-label">Flagged</div>
         <div class="stat-number text-red">${ops.filter(o => o.risk_level === 'danger' || o.risk_level === 'warn').length}</div>
       </div>
+      <div class="stat-card">
+        <div class="stat-label">Scopes</div>
+        <div class="stat-number">${scopes.length}</div>
+      </div>
     </div>
-    <div class="section-title">Recent Memory Operations</div>
-    ${ops.map(o => {
+    <div class="mem-filter-bar">
+      <button class="filter-btn ${scope === 'all' ? 'active' : ''}" onclick="setMemScope('all')">All</button>
+      ${scopes.map(s => `<button class="filter-btn ${scope === s ? 'active' : ''}" onclick="setMemScope('${esc(s)}')">${esc(s)}</button>`).join('')}
+    </div>
+    <div class="section-title">Memory Operations${scope !== 'all' ? ` — ${esc(scope)}` : ''} (${filtered.length})</div>
+    ${filtered.map(o => {
       const opColor = o.operation === 'delete' ? 'var(--red)' : o.operation === 'write' ? 'var(--text-dim)' : 'var(--accent)';
       const isFlagged = o.risk_level === 'danger' || o.risk_level === 'warn';
       const isViewable = o.operation !== 'delete';
