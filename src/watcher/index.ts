@@ -19,6 +19,8 @@ export class Watcher {
   /** Track last event time per session for session-end detection */
   private sessionLastActivity = new Map<string, number>();
   private sessionEndTimer: ReturnType<typeof setInterval> | null = null;
+  /** Dedup: track recent event fingerprints per session to skip duplicates */
+  private recentHashes = new Map<string, Set<string>>();
 
   constructor(config?: Config) {
     this.config = config || loadConfig();
@@ -130,6 +132,23 @@ export class Watcher {
 
     // Skip turn_start/turn_end for storage (too noisy)
     if (event.event_type === 'turn_start' || event.event_type === 'turn_end') return;
+
+    // Deduplicate: skip if we've seen an identical event recently in this session
+    const fingerprint = `${event.timestamp}|${event.event_type}|${event.summary}`;
+    if (!this.recentHashes.has(file.sessionId)) {
+      this.recentHashes.set(file.sessionId, new Set());
+    }
+    const hashes = this.recentHashes.get(file.sessionId)!;
+    if (hashes.has(fingerprint)) return; // duplicate
+    hashes.add(fingerprint);
+    // Cap set size to avoid unbounded growth
+    if (hashes.size > 500) {
+      const iter = hashes.values();
+      for (let i = 0; i < 250; i++) iter.next();
+      const keep = new Set<string>();
+      for (const v of iter) keep.add(v);
+      this.recentHashes.set(file.sessionId, keep);
+    }
 
     // Classify risk with structured reasons
     const riskResult = classifyRiskWithReasons(event, this.config);
