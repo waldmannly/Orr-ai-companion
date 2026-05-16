@@ -1345,6 +1345,111 @@
   .badge-muted { background: var(--surface2); color: var(--muted); }
   .empty-state { text-align: center; padding: 32px 16px; color: var(--muted); font-size: .85rem; }
   .error { text-align: center; padding: 16px; color: var(--red); }
+
+  /* ── Intervention Panel (floating, appears on any page) ── */
+  .intervention-overlay {
+    position: fixed;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 9000;
+    width: 680px;
+    max-height: 50vh;
+    overflow-y: auto;
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+    pointer-events: none;
+  }
+  .intervention-overlay.active { display: flex; }
+  .intervention-card {
+    pointer-events: all;
+    background: linear-gradient(135deg, #2a0a0a, #1a0505);
+    border: 2px solid var(--red);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    box-shadow: 0 0 30px rgba(248,81,73,.25), 0 8px 32px rgba(0,0,0,.5);
+    animation: interventionSlide .35s ease-out, interventionPulse 2s ease-in-out infinite;
+  }
+  .intervention-card.resolved {
+    opacity: .5;
+    border-color: var(--border);
+    animation: none;
+    background: var(--surface);
+  }
+  @keyframes interventionSlide { from { transform: translateY(40px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  @keyframes interventionPulse { 0%,100% { box-shadow: 0 0 20px rgba(248,81,73,.2), 0 8px 32px rgba(0,0,0,.5); } 50% { box-shadow: 0 0 40px rgba(248,81,73,.4), 0 8px 32px rgba(0,0,0,.5); } }
+  .int-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .int-icon { font-size: 1.5rem; animation: shake .5s ease-in-out infinite; }
+  @keyframes shake { 0%,100% { transform: rotate(0); } 25% { transform: rotate(-5deg); } 75% { transform: rotate(5deg); } }
+  .int-title { font-weight: 700; font-size: .95rem; color: var(--red); flex: 1; }
+  .int-timer { font-size: .75rem; font-weight: 600; color: var(--yellow); font-family: var(--mono); min-width: 35px; text-align: right; }
+  .int-body { font-size: .82rem; color: var(--text); margin-bottom: 4px; }
+  .int-target {
+    font-family: var(--mono);
+    font-size: .78rem;
+    background: rgba(0,0,0,.4);
+    padding: 6px 10px;
+    border-radius: 6px;
+    margin: 6px 0 10px;
+    color: var(--orange);
+    word-break: break-all;
+    border-left: 3px solid var(--red);
+  }
+  .int-meta { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+  .int-meta .badge { font-size: .7rem; padding: 2px 8px; }
+  .int-actions {
+    display: flex;
+    gap: 8px;
+  }
+  .int-btn {
+    flex: 1;
+    padding: 10px 0;
+    border: none;
+    border-radius: 8px;
+    font-family: var(--font);
+    font-weight: 700;
+    font-size: .85rem;
+    cursor: pointer;
+    transition: all .15s;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+  }
+  .int-btn:active { transform: scale(.97); }
+  .int-btn.deny {
+    background: linear-gradient(135deg, var(--red), #dc2626);
+    color: #fff;
+  }
+  .int-btn.deny:hover { background: #ef4444; }
+  .int-btn.approve {
+    background: linear-gradient(135deg, var(--green), #16a34a);
+    color: #000;
+  }
+  .int-btn.approve:hover { background: #22c55e; }
+  .int-btn.kill-all {
+    background: var(--surface2);
+    color: var(--red);
+    border: 1px solid var(--red);
+    flex: none;
+    padding: 10px 16px;
+    font-size: .75rem;
+  }
+  .int-btn.kill-all:hover { background: var(--red); color: #fff; }
+  .int-resolved-label {
+    text-align: center;
+    font-size: .8rem;
+    font-weight: 600;
+    padding: 6px;
+    border-radius: 6px;
+    text-transform: uppercase;
+  }
+  .int-resolved-label.denied { color: var(--red); background: rgba(248,81,73,.1); }
+  .int-resolved-label.approved { color: var(--green); background: rgba(63,185,80,.1); }
 </style>
 </head>
 <body>
@@ -1507,6 +1612,9 @@
   </div>
 </div>
 
+<!-- Intervention Panel (floating, appears on any page when blocked actions pending) -->
+<div class="intervention-overlay" id="interventionOverlay"></div>
+
 <!-- Toast Notifications -->
 <div class="toast-container" id="toastContainer"></div>
 
@@ -1545,6 +1653,130 @@ let state = {
   securityFilter: 'all',      // all | danger | warn
   sseNewEvents: 0,            // count of new events since last timeline view
 };
+
+// ── Intervention State ──
+const interventionState = {
+  pending: new Map(),  // id → intervention object
+  timers: new Map(),   // id → setInterval for countdown
+};
+
+function renderInterventions() {
+  const overlay = document.getElementById('interventionOverlay');
+  const pending = Array.from(interventionState.pending.values());
+  if (pending.length === 0) {
+    overlay.classList.remove('active');
+    overlay.innerHTML = '';
+    return;
+  }
+  overlay.classList.add('active');
+  let html = '';
+  if (pending.length > 1) {
+    html += `<div style="text-align:right;pointer-events:all;"><button class="int-btn kill-all" onclick="denyAllInterventions()">🛑 Deny All (${pending.length})</button></div>`;
+  }
+  for (const int of pending) {
+    const typeIcon = int.actionType === 'command' ? '💻' : int.actionType === 'network' ? '🌐' : int.actionType === 'file' ? '📄' : '⚡';
+    const ruleLabel = int.rule.replace(/_/g, ' ');
+    html += `
+      <div class="intervention-card" id="int-card-${int.id}">
+        <div class="int-header">
+          <span class="int-icon">🚨</span>
+          <span class="int-title">AGENT ACTION BLOCKED</span>
+          <span class="int-timer" id="int-timer-${int.id}">--s</span>
+        </div>
+        <div class="int-body">${esc(int.message)}</div>
+        <div class="int-target">${typeIcon} ${esc(int.actionTarget || int.message)}</div>
+        <div class="int-meta">
+          <span class="badge badge-danger">${esc(ruleLabel)}</span>
+          <span class="badge badge-muted">${esc(int.provider)}</span>
+          <span class="badge badge-muted">${esc(int.actionType)}</span>
+        </div>
+        <div class="int-actions">
+          <button class="int-btn deny" onclick="resolveIntervention('${int.id}','deny')">🚫 Deny</button>
+          <button class="int-btn approve" onclick="resolveIntervention('${int.id}','approve')">✅ Allow</button>
+        </div>
+      </div>`;
+  }
+  overlay.innerHTML = html;
+  // Start countdown timers
+  for (const int of pending) startInterventionTimer(int);
+}
+
+function startInterventionTimer(int) {
+  // Clear any existing timer
+  if (interventionState.timers.has(int.id)) {
+    clearInterval(interventionState.timers.get(int.id));
+  }
+  const createdAt = new Date(int.timestamp).getTime();
+  const update = () => {
+    const el = document.getElementById(`int-timer-${int.id}`);
+    if (!el) { clearInterval(tid); interventionState.timers.delete(int.id); return; }
+    const elapsed = Date.now() - createdAt;
+    const remaining = Math.max(0, Math.ceil((30000 - elapsed) / 1000));
+    el.textContent = remaining + 's';
+    if (remaining <= 5) el.style.color = 'var(--red)';
+    else if (remaining <= 10) el.style.color = 'var(--orange)';
+    if (remaining <= 0) {
+      clearInterval(tid);
+      interventionState.timers.delete(int.id);
+      // Remove from pending (server auto-denies)
+      interventionState.pending.delete(int.id);
+      renderInterventions();
+    }
+  };
+  const tid = setInterval(update, 250);
+  interventionState.timers.set(int.id, tid);
+  update();
+}
+
+async function resolveIntervention(id, action) {
+  try {
+    const res = await fetch(`/api/interventions/${id}/${action}`, { method: 'POST' });
+    if (res.ok) {
+      interventionState.pending.delete(id);
+      const timer = interventionState.timers.get(id);
+      if (timer) { clearInterval(timer); interventionState.timers.delete(id); }
+      // Brief flash showing resolution
+      const card = document.getElementById(`int-card-${id}`);
+      if (card) {
+        card.classList.add('resolved');
+        card.querySelector('.int-actions').innerHTML = `<div class="int-resolved-label ${action === 'approve' ? 'approved' : 'denied'}">${action === 'approve' ? '✅ ALLOWED' : '🚫 DENIED'}</div>`;
+        setTimeout(() => renderInterventions(), 1200);
+      } else {
+        renderInterventions();
+      }
+      showToast(action === 'approve' ? 'info' : 'warn', action === 'approve' ? 'Action allowed' : 'Action blocked');
+    }
+  } catch (e) {
+    console.error('Failed to resolve intervention', e);
+  }
+}
+
+async function denyAllInterventions() {
+  try {
+    const res = await fetch('/api/interventions/deny-all', { method: 'POST' });
+    if (res.ok) {
+      for (const [id, timer] of interventionState.timers) clearInterval(timer);
+      interventionState.timers.clear();
+      interventionState.pending.clear();
+      renderInterventions();
+      showToast('warn', 'All pending actions denied');
+    }
+  } catch (e) {
+    console.error('Failed to deny all', e);
+  }
+}
+
+// Load any pending interventions on page load (in case we reconnect)
+async function loadPendingInterventions() {
+  try {
+    const pending = await api('/api/interventions?status=pending');
+    if (pending && pending.length > 0) {
+      for (const int of pending) interventionState.pending.set(int.id, int);
+      renderInterventions();
+    }
+  } catch {}
+}
+loadPendingInterventions();
 
 // ── API Helpers ──
 async function api(path) {
@@ -1774,6 +2006,35 @@ function connectSSE() {
   });
   es.addEventListener('session-ended', (e) => {
     if (state.currentPage === 'sessions') loadSessions();
+  });
+  es.addEventListener('intervention-pending', (e) => {
+    setConnStatus(true);
+    const data = JSON.parse(e.data);
+    interventionState.pending.set(data.id, data);
+    renderInterventions();
+    // Urgent desktop notification
+    sendDesktopNotification('🚨 ACTION BLOCKED — Approve or Deny', data.message, 'danger');
+    // Play alert sound via AudioContext
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.frequency.value = 880; osc.type = 'square';
+      gain.gain.value = 0.15;
+      osc.start(); osc.stop(ctx.currentTime + 0.15);
+      setTimeout(() => { const o2 = ctx.createOscillator(); const g2 = ctx.createGain(); o2.connect(g2); g2.connect(ctx.destination); o2.frequency.value = 1100; o2.type = 'square'; g2.gain.value = 0.15; o2.start(); o2.stop(ctx.currentTime + 0.15); }, 200);
+    } catch {}
+  });
+  es.addEventListener('intervention-resolved', (e) => {
+    setConnStatus(true);
+    const data = JSON.parse(e.data);
+    interventionState.pending.delete(data.id);
+    const timer = interventionState.timers.get(data.id);
+    if (timer) { clearInterval(timer); interventionState.timers.delete(data.id); }
+    renderInterventions();
+    // Refresh guardrails page if visible
+    if (state.currentPage === 'guardrails') loadGuardrails();
   });
   es.onerror = () => {
     setConnStatus(false);
@@ -3169,9 +3430,11 @@ async function loadTrust() {
 async function loadGuardrails() {
   const el = document.getElementById('guardrailsContent');
   try {
-    const [violations, config] = await Promise.all([
+    const [violations, config, intStats, recentInts] = await Promise.all([
       api('/api/guardrails/violations?limit=50'),
       api('/api/guardrails/config'),
+      api('/api/interventions/stats'),
+      api('/api/interventions?status=resolved'),
     ]);
 
     let html = `
@@ -3186,6 +3449,41 @@ async function loadGuardrails() {
         <div class="setting-row"><span>Network Allowlist</span><span>${(config.networkAllowlist || []).length || 'All domains'}</span></div>
       </div>
     `;
+
+    // Intervention stats
+    if (intStats) {
+      html += `
+        <div class="card" style="margin-bottom:12px;">
+          <h3 style="margin:0 0 8px;">🛡️ Intervention Stats</h3>
+          <div class="setting-row"><span>Pending Now</span><span class="badge ${intStats.pending > 0 ? 'badge-danger' : 'badge-muted'}" style="${intStats.pending > 0 ? 'animation: interventionPulse 2s infinite' : ''}">${intStats.pending}</span></div>
+          <div class="setting-row"><span>Total Resolved</span><span>${intStats.totalResolved}</span></div>
+          <div class="setting-row"><span>Approved</span><span style="color:var(--green);">${intStats.approved}</span></div>
+          <div class="setting-row"><span>Denied</span><span style="color:var(--red);">${intStats.denied}</span></div>
+          <div class="setting-row"><span>Auto-Expired</span><span style="color:var(--yellow);">${intStats.expired}</span></div>
+          ${intStats.avgResponseTimeMs > 0 ? `<div class="setting-row"><span>Avg Response</span><span>${(intStats.avgResponseTimeMs / 1000).toFixed(1)}s</span></div>` : ''}
+        </div>`;
+    }
+
+    // Recent intervention history
+    if (recentInts && recentInts.length > 0) {
+      html += '<h3 style="margin:12px 0 8px;">Recent Interventions</h3><div class="timeline">';
+      for (const int of recentInts.slice(0, 20)) {
+        const statusIcon = int.status === 'approved' ? '✅' : int.status === 'denied' ? '🚫' : '⏰';
+        const statusClass = int.status === 'approved' ? 'watch' : 'danger';
+        const typeIcon = int.actionType === 'command' ? '💻' : int.actionType === 'network' ? '🌐' : int.actionType === 'file' ? '📄' : '⚡';
+        html += `
+          <div class="tl-event risk-${statusClass}">
+            <div class="tl-time">${fmtTime(int.timestamp)}</div>
+            <div class="tl-body">
+              <span class="badge badge-${statusClass}">${statusIcon} ${int.status.toUpperCase()}</span>
+              <span class="badge badge-muted">${int.rule.replace(/_/g, ' ')}</span>
+              <span class="badge badge-muted">${int.resolvedBy || ''}</span>
+              <div class="tl-summary">${typeIcon} ${esc(int.actionTarget || int.message)}</div>
+            </div>
+          </div>`;
+      }
+      html += '</div>';
+    }
 
     if (violations.length === 0) {
       html += '<div class="empty-state">No guardrail violations recorded. 🎉</div>';

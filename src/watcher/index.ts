@@ -9,6 +9,7 @@ import { LogProvider, TranscriptFile, getActiveProviders, createCustomProvider }
 import { broadcastSSE } from '../dashboard/server';
 import { dispatchAlertNotifications } from '../notifications';
 import { evaluateGuardrails } from '../guardrails';
+import { createIntervention } from '../guardrails/intervention';
 import { updateTrustScore } from '../trust';
 import { appendToChain, initHashChain } from '../compliance';
 import { evaluatePackRules, loadPacksFromDirectory } from '../rules/packs';
@@ -233,6 +234,28 @@ export class Watcher {
           blocked: v.blocked,
         });
         broadcastSSE('guardrail', { rule: v.rule, severity: v.severity, message: v.message, blocked: v.blocked, session_id: file.sessionId });
+
+        // Create intervention for blocked actions — dashboard can approve/deny
+        if (v.blocked) {
+          const provider = this.sessionProvider.get(file.sessionId);
+          const actionType = event.event_type === 'terminal_command' ? 'command'
+            : event.event_type === 'web_fetch' ? 'network'
+            : (event.file_paths?.length > 0) ? 'file'
+            : 'other';
+          const actionTarget = event.command
+            || (event.file_paths?.length > 0 ? event.file_paths.join(', ') : '')
+            || event.summary || '';
+          const intervention = createIntervention({
+            sessionId: file.sessionId,
+            rule: v.rule,
+            severity: v.severity,
+            message: v.message,
+            actionType,
+            actionTarget,
+            provider: provider?.id || 'unknown',
+          });
+          broadcastSSE('intervention-pending', intervention);
+        }
       }
       // Elevate risk level if guardrail fires
       if (violations.some(v => v.severity === 'danger') && event.risk_level !== 'danger') {

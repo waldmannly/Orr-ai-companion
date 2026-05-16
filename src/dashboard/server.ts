@@ -18,6 +18,11 @@ import { testWebhook } from '../notifications';
 import { getAllTrustScores, getTrustScore, getProviderComparison } from '../trust';
 import { verifyChain, generateEvidenceReport, exportSignedSession, initHashChain } from '../compliance';
 import { getAvailablePacks, loadPackFromFile, loadPacksFromDirectory } from '../rules/packs';
+import {
+  getPendingInterventions, getResolvedInterventions, getAllInterventions,
+  getIntervention, resolveIntervention, denyAllPending, getInterventionStats,
+  getAutoDenyTimeout, setAutoDenyTimeout,
+} from '../guardrails/intervention';
 
 // SSE — broadcast events to connected dashboard clients
 const sseClients = new Set<express.Response>();
@@ -452,6 +457,63 @@ export function createDashboardServer(config: Config): express.Express {
 
   app.get('/api/guardrails/config', (_req, res) => {
     res.json(config.guardrails || {});
+  });
+
+  // ── Interventions (real-time approve/deny for blocked actions) ──
+
+  app.get('/api/interventions', (req, res) => {
+    const status = req.query.status as string;
+    if (status === 'pending') return res.json(getPendingInterventions());
+    if (status === 'resolved') {
+      const limit = parseInt(req.query.limit as string) || 50;
+      return res.json(getResolvedInterventions(limit));
+    }
+    const limit = parseInt(req.query.limit as string) || 100;
+    res.json(getAllInterventions(limit));
+  });
+
+  app.get('/api/interventions/stats', (_req, res) => {
+    res.json(getInterventionStats());
+  });
+
+  app.get('/api/interventions/settings', (_req, res) => {
+    res.json({ autoDenyTimeoutMs: getAutoDenyTimeout() });
+  });
+
+  app.put('/api/interventions/settings', (req, res) => {
+    const { autoDenyTimeoutMs } = req.body;
+    if (typeof autoDenyTimeoutMs === 'number' && autoDenyTimeoutMs >= 5000) {
+      setAutoDenyTimeout(autoDenyTimeoutMs);
+      res.json({ ok: true, autoDenyTimeoutMs });
+    } else {
+      res.status(400).json({ error: 'autoDenyTimeoutMs must be >= 5000' });
+    }
+  });
+
+  app.get('/api/interventions/:id', (req, res) => {
+    const intervention = getIntervention(req.params.id);
+    if (!intervention) return res.status(404).json({ error: 'Intervention not found' });
+    res.json(intervention);
+  });
+
+  app.post('/api/interventions/:id/approve', (req, res) => {
+    const result = resolveIntervention(req.params.id, 'approved', 'user');
+    if (!result) return res.status(404).json({ error: 'Intervention not found or already resolved' });
+    broadcastSSE('intervention-resolved', result);
+    res.json(result);
+  });
+
+  app.post('/api/interventions/:id/deny', (req, res) => {
+    const result = resolveIntervention(req.params.id, 'denied', 'user');
+    if (!result) return res.status(404).json({ error: 'Intervention not found or already resolved' });
+    broadcastSSE('intervention-resolved', result);
+    res.json(result);
+  });
+
+  app.post('/api/interventions/deny-all', (_req, res) => {
+    const denied = denyAllPending();
+    for (const d of denied) broadcastSSE('intervention-resolved', d);
+    res.json({ denied: denied.length });
   });
 
   // ── Rule Packs ──
