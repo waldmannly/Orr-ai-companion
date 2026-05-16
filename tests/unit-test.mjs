@@ -2594,15 +2594,7 @@ await testAsync('GET /api/file/read returns 404 for missing file', async () => {
   assert.equal(res.status, 404);
 });
 
-await testAsync('POST /api/file/open returns ok for existing file', async () => {
-  const res = await fetch(`${BASE}/api/file/open`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path: tmpTestFile }),
-  });
-  assert.equal(res.status, 200);
-  const data = await res.json();
-  assert.equal(data.ok, true);
-});
+// Skipped: POST /api/file/open success test — triggers OS-level `code` command
 
 await testAsync('POST /api/file/open returns 404 for missing file', async () => {
   const res = await fetch(`${BASE}/api/file/open`, {
@@ -2620,15 +2612,7 @@ await testAsync('POST /api/file/open returns 400 for missing path', async () => 
   assert.equal(res.status, 400);
 });
 
-await testAsync('POST /api/file/reveal returns ok for existing dir', async () => {
-  const res = await fetch(`${BASE}/api/file/reveal`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path: tmpTestFile }),
-  });
-  assert.equal(res.status, 200);
-  const data = await res.json();
-  assert.equal(data.ok, true);
-});
+// Skipped: POST /api/file/reveal success test — triggers OS-level explorer command
 
 await testAsync('POST /api/file/reveal returns 400 for missing path', async () => {
   const res = await fetch(`${BASE}/api/file/reveal`, {
