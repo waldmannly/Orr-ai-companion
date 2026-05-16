@@ -3120,6 +3120,356 @@ test('LogTailer handles deleted file gracefully', async () => {
 });
 
 // ══════════════════════════════════════════════════
+//  23. NEW FEATURES — Roadmap Implementation
+// ══════════════════════════════════════════════════
+console.log('═══ 23. NEW FEATURES — Roadmap Implementation ═══');
+
+// Import new DB functions
+const {
+  upsertBaseline, getBaseline, getAllBaselines,
+  getSessionTokens, getProjectTokens,
+  getMemoryLineage, getMemoryHealth,
+  getEventsFiltered, getSessionHealthMetrics, getGlobalMetrics,
+} = dbMod;
+
+// Import notification module
+const notifMod = await import('../dist/notifications/index.js');
+
+// ── Config: notifications merge ──
+test('mergeConfig includes notifications defaults', () => {
+  const cfg = mergeConfig({});
+  assert.ok(cfg.notifications);
+  assert.ok(cfg.notifications.slack);
+  assert.equal(cfg.notifications.slack.enabled, false);
+  assert.equal(cfg.notifications.slack.minSeverity, 'warn');
+  assert.ok(cfg.notifications.webhook);
+  assert.equal(cfg.notifications.webhook.enabled, false);
+  assert.ok(cfg.notifications.desktop);
+  assert.equal(cfg.notifications.desktop.enabled, true);
+  assert.equal(cfg.notifications.desktop.minSeverity, 'danger');
+});
+
+test('mergeConfig merges partial notifications', () => {
+  const cfg = mergeConfig({ notifications: { slack: { enabled: true, url: 'https://test.com' } } });
+  assert.equal(cfg.notifications.slack.enabled, true);
+  assert.equal(cfg.notifications.slack.url, 'https://test.com');
+  assert.equal(cfg.notifications.slack.minSeverity, 'warn'); // default
+  assert.equal(cfg.notifications.webhook.enabled, false); // default
+});
+
+// ── Baselines ──
+test('upsertBaseline and getBaseline', () => {
+  upsertBaseline('test-project', 'events_per_session', 10, 1);
+  const b = getBaseline('test-project', 'events_per_session');
+  assert.ok(b);
+  assert.equal(b.value, 10);
+  assert.equal(b.sample_count, 1);
+});
+
+test('getAllBaselines returns array', () => {
+  const baselines = getAllBaselines('test-project');
+  assert.ok(Array.isArray(baselines));
+  assert.ok(baselines.length >= 1);
+});
+
+test('upsertBaseline updates average on conflict', () => {
+  upsertBaseline('test-project', 'events_per_session', 20, 1);
+  const b = getBaseline('test-project', 'events_per_session');
+  assert.ok(b);
+  assert.ok(b.sample_count >= 2);
+});
+
+// ── Token tracking ──
+test('getSessionTokens returns 0 for empty session', () => {
+  const tokens = getSessionTokens('nonexistent-session');
+  assert.equal(tokens, 0);
+});
+
+test('getProjectTokens returns 0 for empty project', () => {
+  const tokens = getProjectTokens('nonexistent-project');
+  assert.equal(tokens, 0);
+});
+
+// ── Insert event with token_count ──
+test('insertEvent with token_count and anomaly_score', () => {
+  const eventId = insertEvent({
+    session_id: 'test-sess-tokens',
+    timestamp: new Date().toISOString(),
+    agent_id: 'main',
+    parent_agent_id: null,
+    event_type: 'user_message',
+    tool_name: null,
+    risk_level: 'info',
+    summary: 'Hello world message',
+    file_paths: [],
+    command: null,
+    parameters: null,
+    duration_ms: null,
+    raw_log: '',
+    source_tool: 'vscode-copilot',
+    token_count: 42,
+    anomaly_score: 0.5,
+  });
+  assert.ok(eventId > 0);
+  const ev = getEventById(eventId);
+  assert.equal(ev.token_count, 42);
+  assert.equal(ev.anomaly_score, 0.5);
+});
+
+// ── Memory lineage ──
+test('getMemoryLineage returns empty for unknown path', () => {
+  const lineage = getMemoryLineage('/unknown/path.md');
+  assert.ok(Array.isArray(lineage));
+  assert.equal(lineage.length, 0);
+});
+
+test('getMemoryHealth returns array', () => {
+  const health = getMemoryHealth();
+  assert.ok(Array.isArray(health));
+});
+
+// ── Advanced event filtering ──
+test('getEventsFiltered with no filters', () => {
+  const events = getEventsFiltered({});
+  assert.ok(Array.isArray(events));
+});
+
+test('getEventsFiltered with search', () => {
+  const events = getEventsFiltered({ search: 'nonexistent-query-xyz' });
+  assert.ok(Array.isArray(events));
+});
+
+test('getEventsFiltered with date range', () => {
+  const events = getEventsFiltered({
+    startDate: '2020-01-01',
+    endDate: '2099-01-01',
+  });
+  assert.ok(Array.isArray(events));
+});
+
+// ── Session health metrics ──
+test('getSessionHealthMetrics for nonexistent session', () => {
+  const h = getSessionHealthMetrics('nonexistent-session');
+  assert.equal(h.totalEvents, 0);
+  assert.equal(h.grade, 'A');
+});
+
+test('getSessionHealthMetrics for session with data', () => {
+  // Create session with known data
+  upsertSession({
+    id: 'health-test-session',
+    workspace: '/test',
+    project_name: 'test-project',
+    started_at: new Date(Date.now() - 3600000).toISOString(),
+    ended_at: new Date().toISOString(),
+    total_events: 100,
+    danger_count: 2,
+    warn_count: 5,
+    source_tool: 'vscode-copilot',
+  });
+  const h = getSessionHealthMetrics('health-test-session');
+  assert.equal(h.totalEvents, 100);
+  assert.equal(h.dangerCount, 2);
+  assert.equal(h.warnCount, 5);
+  assert.ok(['A', 'B', 'C', 'D', 'F'].includes(h.grade));
+  assert.ok(h.durationMinutes > 0);
+});
+
+// ── Global metrics ──
+test('getGlobalMetrics returns valid structure', () => {
+  const m = getGlobalMetrics();
+  assert.ok(typeof m.totalSessions === 'number');
+  assert.ok(typeof m.totalEvents === 'number');
+  assert.ok(typeof m.totalAlerts === 'number');
+  assert.ok(typeof m.unreviewedAlerts === 'number');
+  assert.ok(typeof m.acknowledgedAlerts === 'number');
+  assert.ok(typeof m.alertFatigueIndex === 'number');
+  assert.ok(typeof m.projectsCovered === 'number');
+});
+
+// ── New detection rules ──
+test('dependency mutation detection', () => {
+  const ev = { event_type: 'terminal_command', command: 'npm install lodash', summary: 'install lodash', file_paths: [], source_tool: 'vscode-copilot' };
+  const result = classifyRiskWithReasons(ev, mergeConfig({}));
+  assert.ok(result.signals.some(s => s.rule === 'dependency_mutation'));
+});
+
+test('env var access detection', () => {
+  const ev = { event_type: 'terminal_command', command: 'echo $SECRET_KEY', summary: 'echo secret', file_paths: [], source_tool: 'vscode-copilot' };
+  const result = classifyRiskWithReasons(ev, mergeConfig({}));
+  assert.ok(result.signals.some(s => s.rule === 'env_var_access'));
+});
+
+test('protected branch detection', () => {
+  const ev = { event_type: 'git_push', command: 'git push origin main', summary: 'push to main', file_paths: [], source_tool: 'vscode-copilot' };
+  const result = classifyRiskWithReasons(ev, mergeConfig({}));
+  assert.ok(result.signals.some(s => s.rule === 'protected_branch'));
+});
+
+test('file permissions detection', () => {
+  const ev = { event_type: 'terminal_command', command: 'chmod 777 /etc/passwd', summary: 'chmod', file_paths: [], source_tool: 'vscode-copilot' };
+  const result = classifyRiskWithReasons(ev, mergeConfig({}));
+  assert.ok(result.signals.some(s => s.rule === 'file_permissions'));
+});
+
+test('retry pattern detection', () => {
+  const ev = { event_type: 'terminal_command', command: 'curl --retry 5 http://example.com', summary: 'curl retry', file_paths: [], source_tool: 'vscode-copilot' };
+  const result = classifyRiskWithReasons(ev, mergeConfig({}));
+  assert.ok(result.signals.some(s => s.rule === 'retry_pattern'));
+});
+
+test('process management detection', () => {
+  const ev = { event_type: 'terminal_command', command: 'kill -9 1234', summary: 'kill process', file_paths: [], source_tool: 'vscode-copilot' };
+  const result = classifyRiskWithReasons(ev, mergeConfig({}));
+  assert.ok(result.signals.some(s => s.rule === 'process_management'));
+});
+
+test('yarn add dependency detection', () => {
+  const ev = { event_type: 'terminal_command', command: 'yarn add react', summary: 'yarn add', file_paths: [], source_tool: 'vscode-copilot' };
+  const result = classifyRiskWithReasons(ev, mergeConfig({}));
+  assert.ok(result.signals.some(s => s.rule === 'dependency_mutation'));
+});
+
+test('pip install dependency detection', () => {
+  const ev = { event_type: 'terminal_command', command: 'pip install requests', summary: 'pip', file_paths: [], source_tool: 'vscode-copilot' };
+  const result = classifyRiskWithReasons(ev, mergeConfig({}));
+  assert.ok(result.signals.some(s => s.rule === 'dependency_mutation'));
+});
+
+test('systemctl process management detection', () => {
+  const ev = { event_type: 'terminal_command', command: 'systemctl restart nginx', summary: 'systemctl', file_paths: [], source_tool: 'vscode-copilot' };
+  const result = classifyRiskWithReasons(ev, mergeConfig({}));
+  assert.ok(result.signals.some(s => s.rule === 'process_management'));
+});
+
+test('printenv env detection', () => {
+  const ev = { event_type: 'terminal_command', command: 'printenv', summary: 'printenv', file_paths: [], source_tool: 'vscode-copilot' };
+  const result = classifyRiskWithReasons(ev, mergeConfig({}));
+  assert.ok(result.signals.some(s => s.rule === 'env_var_access'));
+});
+
+// ── Notification module exports ──
+test('notification module exports dispatchAlertNotifications', () => {
+  assert.ok(typeof notifMod.dispatchAlertNotifications === 'function');
+});
+
+test('notification module exports testWebhook', () => {
+  assert.ok(typeof notifMod.testWebhook === 'function');
+});
+
+await testAsync('testWebhook returns error for unconfigured', async () => {
+  const result = await notifMod.testWebhook('slack');
+  assert.equal(result.ok, false);
+});
+
+// Start a test server for new route tests
+const http23 = await import('node:http');
+const dashServer = await import('../dist/dashboard/server.js');
+const app23 = dashServer.createDashboardServer(mergeConfig({}));
+const server23 = http23.createServer(app23);
+await new Promise(r => server23.listen(0, '127.0.0.1', r));
+const testPort23 = server23.address().port;
+
+// ── Dashboard API routes for new features ──
+await testAsync('GET /api/metrics/global returns metrics', async () => {
+  const res = await fetch(`http://127.0.0.1:${testPort23}/api/metrics/global`);
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.ok(typeof data.totalSessions === 'number');
+  assert.ok(typeof data.alertFatigueIndex === 'number');
+});
+
+await testAsync('GET /api/baselines/:project returns array', async () => {
+  const res = await fetch(`http://127.0.0.1:${testPort23}/api/baselines/test-project`);
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.ok(Array.isArray(data));
+});
+
+await testAsync('GET /api/memory/health returns array', async () => {
+  const res = await fetch(`http://127.0.0.1:${testPort23}/api/memory/health`);
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.ok(Array.isArray(data));
+});
+
+await testAsync('GET /api/memory/lineage without path returns 400', async () => {
+  const res = await fetch(`http://127.0.0.1:${testPort23}/api/memory/lineage`);
+  assert.equal(res.status, 400);
+});
+
+await testAsync('GET /api/memory/lineage with path returns array', async () => {
+  const res = await fetch(`http://127.0.0.1:${testPort23}/api/memory/lineage?path=/memories/test.md`);
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.ok(Array.isArray(data));
+});
+
+await testAsync('GET /api/events/filter returns array', async () => {
+  const res = await fetch(`http://127.0.0.1:${testPort23}/api/events/filtered`);
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.ok(Array.isArray(data));
+});
+
+await testAsync('GET /api/events/filter with params', async () => {
+  const res = await fetch(`http://127.0.0.1:${testPort23}/api/events/filtered?riskLevel=danger&search=test&limit=10`);
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.ok(Array.isArray(data));
+});
+
+await testAsync('GET /api/sessions/:id/health returns metrics', async () => {
+  const res = await fetch(`http://127.0.0.1:${testPort23}/api/sessions/nonexistent/health`);
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.grade, 'A');
+});
+
+await testAsync('GET /api/sessions/:id/replay returns session+events', async () => {
+  const res = await fetch(`http://127.0.0.1:${testPort23}/api/sessions/nonexistent/replay`);
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.ok('events' in data);
+});
+
+await testAsync('POST /api/notifications/test with invalid type returns 400', async () => {
+  const res = await fetch(`http://127.0.0.1:${testPort23}/api/notifications/test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: 'invalid' }),
+  });
+  assert.equal(res.status, 400);
+});
+
+await testAsync('POST /api/notifications/test with slack type', async () => {
+  const res = await fetch(`http://127.0.0.1:${testPort23}/api/notifications/test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: 'slack' }),
+  });
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.ok, false); // no URL configured
+});
+
+await testAsync('GET /api/sessions/:id/tokens returns token count', async () => {
+  const res = await fetch(`http://127.0.0.1:${testPort23}/api/sessions/nonexistent/tokens`);
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.tokens, 0);
+});
+
+await testAsync('GET /api/projects/:name/tokens returns token count', async () => {
+  const res = await fetch(`http://127.0.0.1:${testPort23}/api/projects/test-project/tokens`);
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.ok(typeof data.tokens === 'number');
+});
+
+server23.close();
+
+// ══════════════════════════════════════════════════
 //  RESULTS
 // ══════════════════════════════════════════════════
 console.log('');

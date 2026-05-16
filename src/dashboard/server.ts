@@ -8,7 +8,11 @@ import {
   getAlerts, acknowledgeAlert, acknowledgeAllAlerts, getMemoryOps,
   getStats, getStatsForRange, getProjectStats, getLiveEvents, getAgentStats,
   getEventById, getEventsByFile, getSessionsByProject, searchEvents, getDb,
+  getAllBaselines, getSessionTokens, getProjectTokens,
+  getMemoryLineage, getMemoryHealth,
+  getEventsFiltered, getSessionHealthMetrics, getGlobalMetrics,
 } from '../storage/db';
+import { testWebhook } from '../notifications';
 
 // SSE — broadcast events to connected dashboard clients
 const sseClients = new Set<express.Response>();
@@ -118,6 +122,20 @@ export function createDashboardServer(config: Config): express.Express {
     if (!filePath) return res.status(400).json({ error: 'Missing path' });
     const limit = parseInt(req.query.limit as string) || 100;
     res.json(getEventsByFile(filePath, limit));
+  });
+
+  // Advanced event filtering (must be before :id route)
+  app.get('/api/events/filtered', (req, res) => {
+    res.json(getEventsFiltered({
+      sessionId: req.query.sessionId as string,
+      startDate: req.query.startDate as string,
+      endDate: req.query.endDate as string,
+      riskLevel: req.query.riskLevel as string,
+      eventType: req.query.eventType as string,
+      search: req.query.search as string,
+      limit: req.query.limit ? Number(req.query.limit) : undefined,
+      offset: req.query.offset ? Number(req.query.offset) : undefined,
+    }));
   });
 
   // Single event by ID
@@ -335,6 +353,55 @@ export function createDashboardServer(config: Config): express.Express {
     } catch (err: unknown) {
       res.status(500).json({ error: 'Failed to save config', details: String(err) });
     }
+  });
+
+  // ── Baselines API ──
+  app.get('/api/baselines/:project', (req, res) => {
+    res.json(getAllBaselines(req.params.project));
+  });
+
+  // ── Token tracking API ──
+  app.get('/api/sessions/:id/tokens', (req, res) => {
+    res.json({ tokens: getSessionTokens(req.params.id) });
+  });
+
+  app.get('/api/projects/:name/tokens', (req, res) => {
+    res.json({ tokens: getProjectTokens(req.params.name) });
+  });
+
+  // ── Memory lineage API ──
+  app.get('/api/memory/lineage', (req, res) => {
+    const memPath = req.query.path as string;
+    if (!memPath) return res.status(400).json({ error: 'path required' });
+    res.json(getMemoryLineage(memPath));
+  });
+
+  app.get('/api/memory/health', (_req, res) => {
+    res.json(getMemoryHealth());
+  });
+
+  // ── Computed metrics ──
+  app.get('/api/sessions/:id/health', (req, res) => {
+    res.json(getSessionHealthMetrics(req.params.id));
+  });
+
+  app.get('/api/metrics/global', (_req, res) => {
+    res.json(getGlobalMetrics());
+  });
+
+  // ── Session replay ──
+  app.get('/api/sessions/:id/replay', (req, res) => {
+    const events = getSessionEvents(req.params.id, 10000, 0);
+    const session = getSession(req.params.id);
+    res.json({ session, events });
+  });
+
+  // ── Webhook test ──
+  app.post('/api/notifications/test', async (req, res) => {
+    const { type } = req.body;
+    if (type !== 'slack' && type !== 'webhook') return res.status(400).json({ error: 'type must be slack or webhook' });
+    const result = await testWebhook(type);
+    res.json(result);
   });
 
   // Fallback — serve index.html for SPA routes

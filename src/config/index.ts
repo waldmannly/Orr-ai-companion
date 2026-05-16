@@ -6,6 +6,18 @@ export interface AlertRuleConfig {
   minSeverity: 'watch' | 'warn' | 'danger';
 }
 
+export interface WebhookConfig {
+  enabled: boolean;
+  url: string;
+  minSeverity: 'watch' | 'warn' | 'danger';
+}
+
+export interface NotificationsConfig {
+  slack: WebhookConfig;
+  webhook: WebhookConfig;
+  desktop: { enabled: boolean; minSeverity: 'watch' | 'warn' | 'danger' };
+}
+
 export interface Config {
   watchPaths: string[];
   sensitiveFiles: {
@@ -17,6 +29,7 @@ export interface Config {
     desktopNotifications: boolean;
     minSeverity: string;
   };
+  notifications: NotificationsConfig;
   alertRules: {
     destructive_commands: AlertRuleConfig;
     sensitive_files: AlertRuleConfig;
@@ -63,6 +76,11 @@ const DEFAULTS: Config = {
     'Remove-Item -Recurse -Force', 'rmdir /s /q',
   ],
   alerts: { desktopNotifications: false, minSeverity: 'warn' },
+  notifications: {
+    slack: { enabled: false, url: '', minSeverity: 'warn' },
+    webhook: { enabled: false, url: '', minSeverity: 'danger' },
+    desktop: { enabled: true, minSeverity: 'danger' },
+  },
   alertRules: {
     destructive_commands: { enabled: true, minSeverity: 'warn' },
     sensitive_files: { enabled: true, minSeverity: 'warn' },
@@ -104,11 +122,17 @@ export function loadConfig(): Config {
 }
 
 export function mergeConfig(raw: Record<string, unknown>): Config {
+  const rawNotif = (raw.notifications || {}) as Record<string, unknown>;
   return {
     ...DEFAULTS,
     ...raw,
     sensitiveFiles: { ...DEFAULTS.sensitiveFiles, ...(raw.sensitiveFiles as Record<string, unknown> || {}) },
     alerts: { ...DEFAULTS.alerts, ...(raw.alerts as Record<string, unknown> || {}) },
+    notifications: {
+      slack: { ...DEFAULTS.notifications.slack, ...(rawNotif.slack as Record<string, unknown> || {}) },
+      webhook: { ...DEFAULTS.notifications.webhook, ...(rawNotif.webhook as Record<string, unknown> || {}) },
+      desktop: { ...DEFAULTS.notifications.desktop, ...(rawNotif.desktop as Record<string, unknown> || {}) },
+    },
     alertRules: {
       ...DEFAULTS.alertRules,
       ...(raw.alertRules ? Object.fromEntries(

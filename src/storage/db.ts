@@ -103,6 +103,37 @@ function migrate() {
   } catch {
     db.exec(`ALTER TABLE events ADD COLUMN risk_signals TEXT`);
   }
+  // Additive: token_count on events for cost tracking
+  try {
+    db.prepare("SELECT token_count FROM events LIMIT 0").run();
+  } catch {
+    db.exec(`ALTER TABLE events ADD COLUMN token_count INTEGER`);
+  }
+  // Additive: anomaly_score on events
+  try {
+    db.prepare("SELECT anomaly_score FROM events LIMIT 0").run();
+  } catch {
+    db.exec(`ALTER TABLE events ADD COLUMN anomaly_score REAL`);
+  }
+  // Additive: token_count on sessions
+  try {
+    db.prepare("SELECT token_count FROM sessions LIMIT 0").run();
+  } catch {
+    db.exec(`ALTER TABLE sessions ADD COLUMN token_count INTEGER NOT NULL DEFAULT 0`);
+  }
+  // Baselines table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS baselines (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_name TEXT NOT NULL,
+      metric TEXT NOT NULL,
+      value REAL NOT NULL,
+      sample_count INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL,
+      UNIQUE(project_name, metric)
+    );
+    CREATE INDEX IF NOT EXISTS idx_baselines_project ON baselines(project_name);
+  `);
   // One-time dedup cleanup (tracked by pragma so it only runs once)
   const dedupDone = db.pragma('user_version', { simple: true }) as number;
   if (dedupDone < 1) {
@@ -154,14 +185,16 @@ export function getAllSessions(limit = 50): SessionInfo[] {
 
 export function insertEvent(event: TrackerEvent): number {
   const stmt = db.prepare(`
-    INSERT INTO events (session_id, timestamp, agent_id, parent_agent_id, event_type, tool_name, risk_level, summary, file_paths, command, parameters, duration_ms, raw_log, source_tool, risk_signals)
-    VALUES (@session_id, @timestamp, @agent_id, @parent_agent_id, @event_type, @tool_name, @risk_level, @summary, @file_paths, @command, @parameters, @duration_ms, @raw_log, @source_tool, @risk_signals)
+    INSERT INTO events (session_id, timestamp, agent_id, parent_agent_id, event_type, tool_name, risk_level, summary, file_paths, command, parameters, duration_ms, raw_log, source_tool, risk_signals, token_count, anomaly_score)
+    VALUES (@session_id, @timestamp, @agent_id, @parent_agent_id, @event_type, @tool_name, @risk_level, @summary, @file_paths, @command, @parameters, @duration_ms, @raw_log, @source_tool, @risk_signals, @token_count, @anomaly_score)
   `);
   const result = stmt.run({
     ...event,
     file_paths: JSON.stringify(event.file_paths),
     parameters: event.parameters ? JSON.stringify(event.parameters) : null,
     risk_signals: (event as any).risk_signals ? JSON.stringify((event as any).risk_signals) : null,
+    token_count: event.token_count ?? null,
+    anomaly_score: event.anomaly_score ?? null,
   });
   return Number(result.lastInsertRowid);
 }
@@ -401,4 +434,156 @@ export function getRecentSessionAlertBurst(sessionId: string, windowMinutes: num
     `SELECT COUNT(*) as c FROM alerts WHERE session_id = ? AND timestamp >= ? AND severity IN ('warn','danger')`
   ).get(sessionId, since) as { c: number }).c;
   return count >= threshold;
+}
+
+// ── Baselines ──
+
+export function upsertBaseline(projectName: string, metric: string, value: number, sampleCount: number) {
+  db.prepare(`
+    INSERT INTO baselines (project_name, metric, value, sample_count, updated_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(project_name, metric) DO UPDATE SET
+      value = (value * sample_count + ?) / (sample_count + 1),
+      sample_count = sample_count + 1,
+      updated_at = ?
+  `).run(projectName, metric, value, sampleCount, new Date().toISOString(), value, new Date().toISOString());
+}
+
+export function getBaseline(projectName: string, metric: string): { value: number; sample_count: number } | undefined {
+  return db.prepare('SELECT value, sample_count FROM baselines WHERE project_name = ? AND metric = ?')
+    .get(projectName, metric) as { value: number; sample_count: number } | undefined;
+}
+
+export function getAllBaselines(projectName: string): Array<{ metric: string; value: number; sample_count: number }> {
+  return db.prepare('SELECT metric, value, sample_count FROM baselines WHERE project_name = ? ORDER BY metric')
+    .all(projectName) as Array<{ metric: string; value: number; sample_count: number }>;
+}
+
+// ── Token tracking ──
+
+export function getSessionTokens(sessionId: string): number {
+  const row = db.prepare('SELECT COALESCE(SUM(token_count), 0) as total FROM events WHERE session_id = ? AND token_count IS NOT NULL')
+    .get(sessionId) as { total: number };
+  return row.total;
+}
+
+export function getProjectTokens(projectName: string): number {
+  const row = db.prepare(`
+    SELECT COALESCE(SUM(e.token_count), 0) as total FROM events e
+    JOIN sessions s ON e.session_id = s.id
+    WHERE s.project_name = ? AND e.token_count IS NOT NULL
+  `).get(projectName) as { total: number };
+  return row.total;
+}
+
+// ── Memory lineage ──
+
+export function getMemoryLineage(memoryPath: string): MemoryOperation[] {
+  return db.prepare(
+    'SELECT * FROM memory_operations WHERE memory_path = ? ORDER BY timestamp ASC'
+  ).all(memoryPath) as MemoryOperation[];
+}
+
+export function getMemoryHealth(): Array<{ memory_path: string; scope: string; write_count: number; read_count: number; last_write: string; sessions: number; risk: string }> {
+  return db.prepare(`
+    SELECT
+      memory_path,
+      memory_scope as scope,
+      SUM(CASE WHEN operation = 'write' THEN 1 ELSE 0 END) as write_count,
+      SUM(CASE WHEN operation = 'read' THEN 1 ELSE 0 END) as read_count,
+      MAX(CASE WHEN operation = 'write' THEN timestamp ELSE NULL END) as last_write,
+      COUNT(DISTINCT session_id) as sessions,
+      MAX(risk_level) as risk
+    FROM memory_operations
+    GROUP BY memory_path
+    ORDER BY last_write DESC
+  `).all() as Array<{ memory_path: string; scope: string; write_count: number; read_count: number; last_write: string; sessions: number; risk: string }>;
+}
+
+// ── Advanced event queries with date range ──
+
+export function getEventsFiltered(opts: {
+  sessionId?: string; startDate?: string; endDate?: string;
+  riskLevel?: string; eventType?: string; search?: string;
+  limit?: number; offset?: number;
+}): TrackerEvent[] {
+  let sql = 'SELECT * FROM events WHERE 1=1';
+  const params: unknown[] = [];
+  if (opts.sessionId) { sql += ' AND session_id = ?'; params.push(opts.sessionId); }
+  if (opts.startDate) { sql += ' AND timestamp >= ?'; params.push(opts.startDate); }
+  if (opts.endDate) { sql += ' AND timestamp < ?'; params.push(opts.endDate); }
+  if (opts.riskLevel) { sql += ' AND risk_level = ?'; params.push(opts.riskLevel); }
+  if (opts.eventType) { sql += ' AND event_type = ?'; params.push(opts.eventType); }
+  if (opts.search) { const like = `%${opts.search}%`; sql += ' AND (summary LIKE ? OR command LIKE ? OR file_paths LIKE ?)'; params.push(like, like, like); }
+  sql += ' ORDER BY timestamp DESC LIMIT ? OFFSET ?';
+  params.push(opts.limit || 200, opts.offset || 0);
+  return (db.prepare(sql).all(...params) as Array<Record<string, unknown>>).map(hydrateEvent);
+}
+
+// ── Computed metrics ──
+
+export function getSessionHealthMetrics(sessionId: string): {
+  totalEvents: number; dangerCount: number; warnCount: number;
+  tokenCount: number; durationMinutes: number; eventsPerMinute: number;
+  grade: string; riskVelocity: number;
+} {
+  const session = getSession(sessionId);
+  if (!session) return { totalEvents: 0, dangerCount: 0, warnCount: 0, tokenCount: 0, durationMinutes: 0, eventsPerMinute: 0, grade: 'A', riskVelocity: 0 };
+
+  const tokens = getSessionTokens(sessionId);
+  const start = new Date(session.started_at).getTime();
+  const end = session.ended_at ? new Date(session.ended_at).getTime() : Date.now();
+  const durationMinutes = Math.max(1, (end - start) / 60000);
+  const eventsPerMinute = session.total_events / durationMinutes;
+  const riskVelocity = (session.danger_count * 3 + session.warn_count) / durationMinutes;
+
+  // Grade: A-F based on risk signals
+  let grade = 'A';
+  if (session.danger_count >= 5) grade = 'F';
+  else if (session.danger_count >= 3) grade = 'D';
+  else if (session.danger_count >= 1 || session.warn_count >= 10) grade = 'C';
+  else if (session.warn_count >= 3) grade = 'B';
+
+  return {
+    totalEvents: session.total_events,
+    dangerCount: session.danger_count,
+    warnCount: session.warn_count,
+    tokenCount: tokens,
+    durationMinutes: Math.round(durationMinutes),
+    eventsPerMinute: Math.round(eventsPerMinute * 10) / 10,
+    grade,
+    riskVelocity: Math.round(riskVelocity * 100) / 100,
+  };
+}
+
+export function getGlobalMetrics(): {
+  totalSessions: number; totalEvents: number; totalAlerts: number;
+  unreviewedAlerts: number; acknowledgedAlerts: number; alertFatigueIndex: number;
+  avgTimeToFirstDanger: number; projectsCovered: number;
+} {
+  const d = db;
+  const totalSessions = (d.prepare('SELECT COUNT(*) as c FROM sessions').get() as { c: number }).c;
+  const totalEvents = (d.prepare('SELECT COUNT(*) as c FROM events').get() as { c: number }).c;
+  const totalAlerts = (d.prepare('SELECT COUNT(*) as c FROM alerts').get() as { c: number }).c;
+  const unreviewedAlerts = (d.prepare('SELECT COUNT(*) as c FROM alerts WHERE acknowledged = 0').get() as { c: number }).c;
+  const acknowledgedAlerts = (d.prepare('SELECT COUNT(*) as c FROM alerts WHERE acknowledged = 1').get() as { c: number }).c;
+  const alertFatigueIndex = totalAlerts > 0 ? Math.round((unreviewedAlerts / totalAlerts) * 100) : 0;
+  const projectsCovered = (d.prepare('SELECT COUNT(DISTINCT project_name) as c FROM sessions').get() as { c: number }).c;
+
+  // Average time from session start to first danger event (in minutes)
+  const avgRow = d.prepare(`
+    SELECT AVG(diff) as avg_diff FROM (
+      SELECT MIN((julianday(e.timestamp) - julianday(s.started_at)) * 1440) as diff
+      FROM events e JOIN sessions s ON e.session_id = s.id
+      WHERE e.risk_level = 'danger'
+      GROUP BY e.session_id
+    )
+  `).get() as { avg_diff: number | null };
+
+  return {
+    totalSessions, totalEvents, totalAlerts,
+    unreviewedAlerts, acknowledgedAlerts, alertFatigueIndex,
+    avgTimeToFirstDanger: Math.round(avgRow.avg_diff || 0),
+    projectsCovered,
+  };
 }

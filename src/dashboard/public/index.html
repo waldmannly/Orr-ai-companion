@@ -271,6 +271,28 @@
     color: var(--text-dim);
     font-size: .72rem;
   }
+  .health-bar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 6px 12px; border-radius: var(--radius-sm);
+    background: var(--surface); font-size: .78rem;
+  }
+  .health-grade { font-size: 1.3rem; font-weight: 700; }
+  .health-stat { color: var(--text-dim); font-size: .72rem; }
+  .replay-btn {
+    margin-left: auto; padding: 3px 10px; border-radius: var(--radius-sm);
+    border: 1px solid var(--accent); background: transparent; color: var(--accent);
+    font-size: .72rem; cursor: pointer; transition: background .15s;
+  }
+  .replay-btn:hover { background: var(--accent); color: var(--bg); }
+  .replay-highlight { animation: replayPulse .6s ease-out; }
+  @keyframes replayPulse {
+    0% { background: rgba(99,180,255,.25); }
+    100% { background: transparent; }
+  }
+  .lineage-row { padding: 8px 12px; border-left: 2px solid var(--accent); margin-bottom: 4px; font-size: .8rem; }
+  .lineage-row .op-write { color: var(--yellow); }
+  .lineage-row .op-read { color: var(--green); }
+  .lineage-row .op-delete { color: var(--red); }
   .agent-stats-bar {
     display: flex;
     gap: 10px;
@@ -1361,6 +1383,7 @@
         </div>
       </div>
       <div id="tlAgentStats"></div>
+      <div id="tlHealthMetrics" style="display:none;margin-bottom:8px;"></div>
       <div class="filter-bar">
         <input class="filter-input" placeholder="Filter events..." type="text" id="timelineSearch">
         <button class="filter-btn" id="riskFilterBtn" onclick="toggleRiskFilter()">⚡ Risk</button>
@@ -2075,7 +2098,7 @@ function buildSourcesSummary(sessions) {
 
 // ── HOME Page ──
 async function loadHome() {
-  const [stats, sessions] = await Promise.all([api(`/api/stats?range=${state.homeRange}`), api('/api/sessions')]);
+  const [stats, sessions, globalMetrics] = await Promise.all([api(`/api/stats?range=${state.homeRange}`), api('/api/sessions'), api('/api/metrics/global')]);
   state.sessions = sessions || [];
   if (!stats) {
     document.getElementById('homeContent').innerHTML = '<div class="empty-state"><div class="icon">📊</div><div class="msg">No data yet.<br>Start an AI coding session and events will appear here.</div></div>';
@@ -2159,6 +2182,26 @@ async function loadHome() {
       <div class="stat-card">
         <div class="stat-label">Active Now</div>
         <div class="stat-number text-green">${stats.activeSessions || 0}</div>
+      </div>
+    </div>` : ''}
+
+    ${globalMetrics ? `
+    <div class="card">
+      <div class="card-title mb-8">System Health</div>
+      <div class="stat-grid" style="margin:0;">
+        <div class="stat-card" style="padding:8px;">
+          <div class="stat-label" style="font-size:.7rem;">Alert Fatigue</div>
+          <div class="stat-number" style="font-size:1.2rem;color:${globalMetrics.alertFatigueIndex > 50 ? 'var(--red)' : 'var(--green)'}">${globalMetrics.alertFatigueIndex}%</div>
+          <div class="stat-sub">${globalMetrics.unreviewedAlerts} unreviewed</div>
+        </div>
+        <div class="stat-card" style="padding:8px;">
+          <div class="stat-label" style="font-size:.7rem;">Avg Time to Danger</div>
+          <div class="stat-number" style="font-size:1.2rem;">${globalMetrics.avgTimeToFirstDanger || '—'}m</div>
+        </div>
+        <div class="stat-card" style="padding:8px;">
+          <div class="stat-label" style="font-size:.7rem;">Projects</div>
+          <div class="stat-number" style="font-size:1.2rem;">${globalMetrics.projectsCovered}</div>
+        </div>
       </div>
     </div>` : ''}
 
@@ -2267,10 +2310,11 @@ async function loadTimeline(sessionId) {
     return;
   }
   state.selectedSessionId = sessionId;
-  const [session, events, agents] = await Promise.all([
+  const [session, events, agents, health] = await Promise.all([
     api(`/api/sessions/${sessionId}`),
     api(`/api/sessions/${sessionId}/events?limit=500`),
     api(`/api/sessions/${sessionId}/agents`),
+    api(`/api/sessions/${sessionId}/health`),
   ]);
   state.timelineEvents = events || [];
 
@@ -2287,6 +2331,24 @@ async function loadTimeline(sessionId) {
     } else {
       badge.style.display = 'none';
     }
+  }
+  // Show health metrics if available
+  const healthEl = document.getElementById('tlHealthMetrics');
+  if (healthEl && health) {
+    const gradeColor = { A: 'var(--green)', B: 'var(--accent)', C: 'var(--yellow)', D: 'var(--red)', F: 'var(--red)' };
+    healthEl.innerHTML = `
+      <div class="health-bar">
+        <span class="health-grade" style="color:${gradeColor[health.grade] || 'var(--text-dim)'}">${health.grade}</span>
+        <span class="health-stat">${health.durationMinutes}m</span>
+        <span class="health-stat">${health.eventsPerMinute} evt/m</span>
+        ${health.tokenCount ? `<span class="health-stat">~${(health.tokenCount/1000).toFixed(1)}k tok</span>` : ''}
+        <span class="health-stat" style="color:${health.riskVelocity > 1 ? 'var(--red)' : 'var(--text-dim)'}">⚡${health.riskVelocity} risk/m</span>
+        <button class="replay-btn" onclick="startReplay('${sessionId}')">▶ Replay</button>
+      </div>
+    `;
+    healthEl.style.display = '';
+  } else if (healthEl) {
+    healthEl.style.display = 'none';
   }
   // Show agent breakdown if sub-agents exist
   const agentStatsEl = document.getElementById('tlAgentStats');
@@ -2365,6 +2427,8 @@ function renderTimeline() {
         <div class="tl-summary"><span class="icon">${icon(e.event_type)}</span> ${esc(e.summary)}</div>
         <div class="tl-meta">
           <span class="badge badge-${e.risk_level}" onclick="event.stopPropagation();setFilter('type','${escAttr(e.event_type)}')" style="cursor:pointer" title="Filter by type">${e.risk_level}</span>
+          ${e.token_count ? `<span class="badge" style="background:rgba(99,180,255,.1);color:var(--accent);font-size:.6rem;" title="Estimated tokens">~${e.token_count} tok</span>` : ''}
+          ${e.anomaly_score > 0.3 ? `<span class="badge" style="background:rgba(248,81,73,.15);color:var(--red);font-size:.6rem;" title="Anomaly score: ${(e.anomaly_score*100).toFixed(0)}%">⚡ anomaly</span>` : ''}
           ${sourceBadgeHtml}
           ${agentBadge}
           ${fileHtml}
@@ -2620,6 +2684,7 @@ function renderMemory() {
             <span class="detail-file-link" onclick="viewMemoryFile('${escAttr(o.memory_path)}')">${esc(o.memory_path)}</span>
             ${isViewable ? `<button class="mem-view-btn" onclick="viewMemoryFile('${escAttr(o.memory_path)}')">👁 View File</button>` : ''}
             <button class="mem-view-btn" onclick="revealInExplorer('${escAttr(o.memory_path)}')" style="color:var(--green);border-color:rgba(63,185,80,.15);background:rgba(63,185,80,.08);">📂 Reveal</button>
+            <button class="mem-view-btn" onclick="showMemoryLineage('${escAttr(o.memory_path)}')" style="color:var(--purple);border-color:rgba(188,140,255,.15);background:rgba(188,140,255,.08);">🔗 Lineage</button>
           </div>
           ${o.content_summary ? `<div class="mem-content">${esc(o.content_summary)}</div>` : ''}
           ${isFlagged ? `<div class="mem-flag">🚨 Flagged: risk level ${esc(o.risk_level)}</div>` : ''}
@@ -2780,6 +2845,64 @@ function renderSettings() {
       </div>
     </div>
 
+    <div class="settings-section">
+      <div class="settings-section-title">Notifications</div>
+      <div class="setting-desc" style="margin-bottom:10px;">Configure webhook integrations for alert notifications.</div>
+
+      <div class="setting-row">
+        <div class="setting-info">
+          <div class="setting-name">🔔 Desktop Notifications</div>
+          <div class="setting-desc">Show browser notifications for high-severity alerts</div>
+        </div>
+        <div class="setting-controls">
+          <select class="sev-select" id="notifDesktopSev" onchange="markSettingsDirty()">
+            <option value="watch" ${(c.notifications?.desktop?.minSeverity||'danger') === 'watch' ? 'selected' : ''}>watch+</option>
+            <option value="warn" ${(c.notifications?.desktop?.minSeverity||'danger') === 'warn' ? 'selected' : ''}>warn+</option>
+            <option value="danger" ${(c.notifications?.desktop?.minSeverity||'danger') === 'danger' ? 'selected' : ''}>danger only</option>
+          </select>
+          <div class="toggle ${c.notifications?.desktop?.enabled !== false ? 'on' : ''}" onclick="this.classList.toggle('on');markSettingsDirty()" id="notifDesktopToggle"></div>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-info">
+          <div class="setting-name">💬 Slack Webhook</div>
+          <div class="setting-desc">Send alerts to a Slack channel via incoming webhook URL</div>
+        </div>
+        <div class="setting-controls">
+          <select class="sev-select" id="notifSlackSev" onchange="markSettingsDirty()">
+            <option value="watch" ${(c.notifications?.slack?.minSeverity||'warn') === 'watch' ? 'selected' : ''}>watch+</option>
+            <option value="warn" ${(c.notifications?.slack?.minSeverity||'warn') === 'warn' ? 'selected' : ''}>warn+</option>
+            <option value="danger" ${(c.notifications?.slack?.minSeverity||'warn') === 'danger' ? 'selected' : ''}>danger only</option>
+          </select>
+          <div class="toggle ${c.notifications?.slack?.enabled ? 'on' : ''}" onclick="this.classList.toggle('on');markSettingsDirty()" id="notifSlackToggle"></div>
+        </div>
+      </div>
+      <div class="setting-row" style="flex-direction:column;align-items:stretch;">
+        <input class="sev-select" type="text" placeholder="https://hooks.slack.com/services/..." value="${esc(c.notifications?.slack?.url || '')}" id="notifSlackUrl" style="width:100%;box-sizing:border-box;" oninput="markSettingsDirty()">
+        <button class="settings-reset-btn" style="margin-top:6px;width:auto;align-self:flex-end;" onclick="testNotif('slack')">Test Slack</button>
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-info">
+          <div class="setting-name">🌐 Generic Webhook</div>
+          <div class="setting-desc">POST alert JSON to a custom HTTP endpoint</div>
+        </div>
+        <div class="setting-controls">
+          <select class="sev-select" id="notifWebhookSev" onchange="markSettingsDirty()">
+            <option value="watch" ${(c.notifications?.webhook?.minSeverity||'danger') === 'watch' ? 'selected' : ''}>watch+</option>
+            <option value="warn" ${(c.notifications?.webhook?.minSeverity||'danger') === 'warn' ? 'selected' : ''}>warn+</option>
+            <option value="danger" ${(c.notifications?.webhook?.minSeverity||'danger') === 'danger' ? 'selected' : ''}>danger only</option>
+          </select>
+          <div class="toggle ${c.notifications?.webhook?.enabled ? 'on' : ''}" onclick="this.classList.toggle('on');markSettingsDirty()" id="notifWebhookToggle"></div>
+        </div>
+      </div>
+      <div class="setting-row" style="flex-direction:column;align-items:stretch;">
+        <input class="sev-select" type="text" placeholder="https://example.com/webhook" value="${esc(c.notifications?.webhook?.url || '')}" id="notifWebhookUrl" style="width:100%;box-sizing:border-box;" oninput="markSettingsDirty()">
+        <button class="settings-reset-btn" style="margin-top:6px;width:auto;align-self:flex-end;" onclick="testNotif('webhook')">Test Webhook</button>
+      </div>
+    </div>
+
     <div class="settings-save-bar">
       <button class="settings-reset-btn" onclick="loadSettings()">Reset</button>
       <div style="display:flex;align-items:center;gap:10px;">
@@ -2806,6 +2929,77 @@ function updateAlertRule(key, prop, value) {
   if (!settingsDraft.alertRules[key]) settingsDraft.alertRules[key] = { enabled: true, minSeverity: 'warn' };
   settingsDraft.alertRules[key][prop] = value;
   markSettingsDirty();
+}
+
+async function testNotif(type) {
+  showToast('info', `Testing ${type} notification...`);
+  try {
+    const res = await fetch('/api/notifications/test', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type }),
+    });
+    const data = await res.json();
+    if (data.ok) showToast('info', `${type} test sent successfully`);
+    else showToast('danger', `${type} test failed: ${data.error || 'unknown error'}`);
+  } catch (e) {
+    showToast('danger', `${type} test error: ${e.message}`);
+  }
+}
+
+// ── Session Replay ──
+let replayTimer = null;
+async function startReplay(sessionId) {
+  if (replayTimer) { clearInterval(replayTimer); replayTimer = null; }
+  const data = await api(`/api/sessions/${sessionId}/replay`);
+  if (!data || !data.events || data.events.length === 0) {
+    showToast('info', 'No events to replay');
+    return;
+  }
+  state.timelineEvents = [];
+  renderTimeline();
+  showToast('info', `Replaying ${data.events.length} events...`);
+
+  let idx = 0;
+  replayTimer = setInterval(() => {
+    if (idx >= data.events.length) {
+      clearInterval(replayTimer);
+      replayTimer = null;
+      showToast('info', 'Replay complete');
+      return;
+    }
+    state.timelineEvents.push(data.events[idx]);
+    renderTimeline();
+    // Scroll to and highlight newest event
+    const items = document.querySelectorAll('.tl-item');
+    if (items.length > 0) {
+      const last = items[items.length - 1];
+      last.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      last.classList.add('replay-highlight');
+    }
+    idx++;
+  }, 150);
+}
+
+// ── Memory Lineage ──
+async function showMemoryLineage(memPath) {
+  const ops = await api(`/api/memory/lineage?path=${encodeURIComponent(memPath)}`);
+  if (!ops || ops.length === 0) {
+    showToast('info', 'No lineage data for this path');
+    return;
+  }
+  const overlay = document.getElementById('fileViewerOverlay');
+  overlay.classList.add('open');
+  document.getElementById('fvPath').textContent = `Memory Lineage: ${memPath}`;
+  document.getElementById('fvSize').textContent = `${ops.length} operations`;
+  document.getElementById('fvInfoBar').textContent = '';
+  document.getElementById('fvContent').innerHTML = ops.map(op => `
+    <div class="lineage-row">
+      <span class="op-${op.operation}">${op.operation.toUpperCase()}</span>
+      <span style="color:var(--text-dim);margin:0 8px;">${fmtTime(op.timestamp)}</span>
+      <span class="badge badge-${op.risk_level}" style="font-size:.65rem;">${op.risk_level}</span>
+      <div style="margin-top:4px;font-size:.75rem;color:var(--text-dim);">${esc(op.content_summary)}</div>
+    </div>
+  `).join('');
 }
 
 function markSettingsDirty() {
@@ -2841,6 +3035,24 @@ async function saveSettings() {
     if (!settingsDraft.dashboard) settingsDraft.dashboard = {};
     settingsDraft.dashboard.port = parseInt(portEl.value) || 3847;
   }
+
+  // Notification settings
+  settingsDraft.notifications = {
+    desktop: {
+      enabled: document.getElementById('notifDesktopToggle')?.classList.contains('on') ?? true,
+      minSeverity: document.getElementById('notifDesktopSev')?.value || 'danger',
+    },
+    slack: {
+      enabled: document.getElementById('notifSlackToggle')?.classList.contains('on') ?? false,
+      url: document.getElementById('notifSlackUrl')?.value || '',
+      minSeverity: document.getElementById('notifSlackSev')?.value || 'warn',
+    },
+    webhook: {
+      enabled: document.getElementById('notifWebhookToggle')?.classList.contains('on') ?? false,
+      url: document.getElementById('notifWebhookUrl')?.value || '',
+      minSeverity: document.getElementById('notifWebhookSev')?.value || 'danger',
+    },
+  };
 
   const res = await fetch('/api/settings', {
     method: 'PUT',

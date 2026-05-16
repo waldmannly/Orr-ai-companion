@@ -3,10 +3,11 @@ import { LogTailer } from './log-tailer';
 import { SessionParserState } from '../parser';
 import { classifyRiskWithReasons, extractMemoryOp } from '../risk/classifier';
 import { evaluateAlerts, persistAlerts } from '../alerts/engine';
-import { initDb, upsertSession, insertEvent, insertMemoryOp, getSession, markSessionEnded, enforceRetention, insertAlert, getRecentSessionAlertBurst } from '../storage/db';
+import { initDb, upsertSession, insertEvent, insertMemoryOp, getSession, markSessionEnded, enforceRetention, insertAlert, getRecentSessionAlertBurst, upsertBaseline, getBaseline } from '../storage/db';
 import { SessionInfo } from '../parser/event-types';
 import { LogProvider, TranscriptFile, getActiveProviders, createCustomProvider } from '../providers';
 import { broadcastSSE } from '../dashboard/server';
+import { dispatchAlertNotifications } from '../notifications';
 
 export class Watcher {
   private config: Config;
@@ -148,9 +149,30 @@ export class Watcher {
     event.risk_level = riskResult.level;
     event.risk_signals = riskResult.signals.length > 0 ? riskResult.signals : null;
 
+    // Estimate token count from message/command length
+    if (event.event_type === 'user_message' || event.event_type === 'assistant_message') {
+      const textLen = (event.summary || '').length + (event.raw_log || '').length;
+      event.token_count = Math.max(1, Math.round(textLen / 4)); // rough approximation
+    }
+
     // Store event
     const eventId = insertEvent(event);
     event.id = eventId;
+
+    // Baseline tracking: update per-project metrics
+    const projectName = file.projectName || 'unknown';
+    upsertBaseline(projectName, 'events_per_session', 1, 1);
+    if (event.risk_level === 'danger') upsertBaseline(projectName, 'danger_per_session', 1, 1);
+    if (event.token_count) upsertBaseline(projectName, 'tokens_per_event', event.token_count, 1);
+
+    // Anomaly detection: compare event rate to baseline
+    const baselineRate = getBaseline(projectName, 'events_per_session');
+    if (baselineRate && baselineRate.sample_count >= 10) {
+      const counters = this.sessionCounters.get(file.sessionId);
+      if (counters && counters.total > baselineRate.value * 3) {
+        event.anomaly_score = Math.min(1, (counters.total / baselineRate.value - 1) / 5);
+      }
+    }
 
     // Track session activity for end detection
     this.sessionLastActivity.set(file.sessionId, Date.now());
@@ -172,9 +194,10 @@ export class Watcher {
     if (alerts.length > 0) {
       for (const a of alerts) a.event_id = eventId;
       persistAlerts(alerts);
-      // Broadcast alert to SSE
+      // Broadcast alert to SSE and dispatch notifications
       for (const a of alerts) {
         broadcastSSE('alert', { severity: a.severity, message: a.message, session_id: a.session_id, event_id: eventId });
+        dispatchAlertNotifications(a).catch(() => {});
       }
     }
 

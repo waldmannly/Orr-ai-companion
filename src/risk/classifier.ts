@@ -185,6 +185,48 @@ export function classifyRiskWithReasons(event: TrackerEvent, config: Config): Ri
     }
   }
 
+  // Dependency mutation detection
+  if (['terminal_command', 'terminal_send'].includes(event.event_type) && event.command) {
+    if (/npm\s+(install|i|add|remove|uninstall|update)\b/.test(event.command) || /yarn\s+(add|remove|upgrade)\b/.test(event.command) || /pip\s+install\b/.test(event.command) || /cargo\s+(add|install)\b/.test(event.command)) {
+      signals.push({ rule: 'dependency_mutation', level: 'warn', reason: 'AI agent is modifying project dependencies', danger: 'Dependency changes can introduce supply-chain vulnerabilities, license issues, or break existing functionality' });
+    }
+  }
+
+  // Environment variable access
+  if (['terminal_command', 'terminal_send'].includes(event.event_type) && event.command) {
+    if (/\$\{?[A-Z_]*(?:KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL|AUTH)[A-Z_]*\}?/i.test(event.command) || /printenv|env\b|set\s/.test(event.command)) {
+      signals.push({ rule: 'env_var_access', level: 'warn', reason: 'AI agent is accessing environment variables that may contain secrets', danger: 'Secrets could be logged, exfiltrated, or exposed in command output' });
+    }
+  }
+
+  // Git branch context — main/master branch operations
+  if (['git_push', 'git_commit', 'git_reset', 'git_checkout'].includes(event.event_type) && event.command) {
+    if (/\b(main|master|production|release)\b/.test(event.command)) {
+      signals.push({ rule: 'protected_branch', level: 'warn', reason: 'AI agent is operating on a protected/default branch', danger: 'Direct changes to main/production branches bypass code review and could break deployments' });
+    }
+  }
+
+  // File permission changes
+  if (['terminal_command', 'terminal_send'].includes(event.event_type) && event.command) {
+    if (/chmod\s/.test(event.command) || /chown\s/.test(event.command) || /icacls\s/.test(event.command) || /attrib\s/.test(event.command)) {
+      signals.push({ rule: 'file_permissions', level: 'warn', reason: 'AI agent is modifying file permissions', danger: 'Permission changes could make files executable, world-readable, or alter ownership' });
+    }
+  }
+
+  // Retry pattern detection — repeated similar commands
+  if (['terminal_command', 'terminal_send'].includes(event.event_type) && event.command) {
+    if (/--retry|--retries|retry|attempts?|loop|while\s+true/.test(event.command)) {
+      signals.push({ rule: 'retry_pattern', level: 'watch', reason: 'Command contains retry/loop pattern', danger: 'Infinite loops or excessive retries could cause resource exhaustion or rate-limit violations' });
+    }
+  }
+
+  // Process/service management
+  if (['terminal_command', 'terminal_send'].includes(event.event_type) && event.command) {
+    if (/kill\s|pkill\s|taskkill\s|systemctl\s|service\s|net\s+(start|stop)\b/.test(event.command)) {
+      signals.push({ rule: 'process_management', level: 'warn', reason: 'AI agent is managing system processes or services', danger: 'Stopping or killing processes could cause data loss or service disruption' });
+    }
+  }
+
   // Check memory content for injection patterns
   if (event.event_type === 'memory_write' && event.parameters) {
     const content = (event.parameters.file_text as string) || (event.parameters.insert_text as string) || (event.parameters.new_str as string) || '';

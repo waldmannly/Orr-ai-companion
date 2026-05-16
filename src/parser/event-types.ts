@@ -32,6 +32,10 @@ export interface TrackerEvent {
   source_tool: string;
   /** Structured risk explanation signals — why this was flagged */
   risk_signals?: Array<{ rule: string; level: RiskLevel; reason: string; danger: string }> | null;
+  /** Estimated token count for this interaction */
+  token_count?: number | null;
+  /** Anomaly score (0-1) relative to baselines */
+  anomaly_score?: number | null;
 }
 
 export interface SessionInfo {
@@ -45,6 +49,8 @@ export interface SessionInfo {
   warn_count: number;
   /** Which AI tool this session is from */
   source_tool: string;
+  /** Cumulative token count for the session */
+  token_count?: number;
 }
 
 export interface Alert {
