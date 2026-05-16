@@ -431,11 +431,13 @@ assert('Nav has policy button', page.text.includes('data-page="policy"'));
 // ══════════════════════════════════════════════════════
 console.log('\n═══ 12. EXPORT & REPORTING API ═══');
 
-const exportJson = await api('/api/export/events?format=json');
+const exportStart = new Date(Date.now() - 3600_000).toISOString();
+const exportEnd = new Date().toISOString();
+const exportJson = await api(`/api/export/events?format=json&start=${exportStart}&end=${exportEnd}`);
 assert('Export JSON returns 200', exportJson.status === 200);
 assert('Export JSON returns array', Array.isArray(exportJson.data));
 
-const exportCsv = await html('/api/export/events?format=csv');
+const exportCsv = await html(`/api/export/events?format=csv&start=${exportStart}&end=${exportEnd}`);
 assert('Export CSV returns 200', exportCsv.status === 200);
 assert('Export CSV has header row', exportCsv.text.includes('id') || exportCsv.text.includes('session_id'));
 

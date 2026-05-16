@@ -738,13 +738,17 @@ export function createDashboardServer(config: Config): express.Express {
     const end = (req.query.end as string) || new Date().toISOString();
     const format = (req.query.format as string) || 'json';
     const sessionId = req.query.session_id as string | undefined;
-    if (format === 'csv') {
-      res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', 'attachment; filename="events-export.csv"');
-      res.send(exportEventsCSV(start, end, sessionId));
-    } else {
-      res.setHeader('Content-Disposition', 'attachment; filename="events-export.json"');
-      res.json(exportEventsJSON(start, end, sessionId));
+    try {
+      if (format === 'csv') {
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', 'attachment; filename="events-export.csv"');
+        res.send(exportEventsCSV(start, end, sessionId));
+      } else {
+        res.setHeader('Content-Disposition', 'attachment; filename="events-export.json"');
+        res.json(exportEventsJSON(start, end, sessionId));
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: 'Export too large. Try narrowing the date range or filtering by session.' });
     }
   });
 
