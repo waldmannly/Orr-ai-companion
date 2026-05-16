@@ -37,7 +37,7 @@ assert('Index HTML serves (200)', page.status === 200);
 assert('HTML has correct title', page.text.includes('<title>AL Companion Tracker</title>'));
 assert('HTML has phone-frame layout', page.text.includes('class="phone-frame"'));
 assert('HTML has bottom nav', page.text.includes('class="bottom-nav"'));
-assert('HTML has 22 nav buttons', (page.text.match(/<button[^>]*data-page="/g) || []).length === 22);
+assert('HTML has 22 nav buttons', (page.text.match(/<button[^>]*class="sidebar-nav-item[^"]*"[^>]*data-page="/g) || []).length === 22);
 assert('HTML has Home page', page.text.includes('id="page-home"'));
 assert('HTML has Sessions page', page.text.includes('id="page-sessions"'));
 assert('HTML has Timeline page', page.text.includes('id="page-timeline"'));

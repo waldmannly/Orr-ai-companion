@@ -46,7 +46,7 @@
 
   /* ── Desktop Panel ───────────────────────────────── */
   .phone-frame {
-    width: 720px;
+    width: 780px;
     height: 100vh;
     background: var(--surface);
     border-radius: 0;
@@ -54,9 +54,75 @@
     border-right: 1px solid var(--border);
     overflow: hidden;
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     box-shadow: 4px 0 24px rgba(0,0,0,.3);
     position: relative;
+  }
+
+  /* ── Left Sidebar Nav ────────────────────────────── */
+  .sidebar-nav {
+    width: 62px;
+    flex-shrink: 0;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  .sidebar-nav::-webkit-scrollbar { width: 3px; }
+  .sidebar-nav::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  .sidebar-nav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 10px 4px 8px;
+    font-size: .58rem;
+    font-weight: 500;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: color .15s, background .15s;
+    border: none;
+    background: none;
+    position: relative;
+    white-space: nowrap;
+  }
+  .sidebar-nav-item:hover { color: var(--text); background: var(--surface2); }
+  .sidebar-nav-item.active { color: var(--accent); background: rgba(88,166,255,.08); }
+  .sidebar-nav-item.active::before {
+    content: '';
+    position: absolute;
+    top: 8px;
+    bottom: 8px;
+    left: 0;
+    width: 2px;
+    background: var(--accent);
+    border-radius: 0 2px 2px 0;
+  }
+  .sidebar-nav-icon { font-size: 1.1rem; line-height: 1; }
+  .sidebar-nav .nav-badge {
+    position: absolute;
+    top: 4px;
+    right: 6px;
+    background: var(--red);
+    color: #fff;
+    font-size: .5rem;
+    font-weight: 700;
+    padding: 1px 4px;
+    border-radius: 10px;
+    line-height: 1.3;
+  }
+
+  /* ── Main Content Column ─────────────────────────── */
+  .main-column {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-width: 0;
   }
 
   /* ── Status Bar ──────────────────────────────────── */
@@ -507,54 +573,8 @@
   }
   .project-bar-seg { height: 100%; }
 
-  /* ── Bottom Nav ──────────────────────────────────── */
-  .bottom-nav {
-    display: flex;
-    border-top: 1px solid var(--border);
-    background: var(--surface);
-    flex-shrink: 0;
-  }
-  .bottom-nav-item {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 4px;
-    padding: 10px 2px 14px;
-    font-size: .65rem;
-    font-weight: 500;
-    color: var(--text-dim);
-    cursor: pointer;
-    transition: color .15s;
-    border: none;
-    background: none;
-    position: relative;
-  }
-  .bottom-nav-item:hover { color: var(--text); }
-  .bottom-nav-item.active { color: var(--accent); }
-  .bottom-nav-item.active::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 25%;
-    right: 25%;
-    height: 2px;
-    background: var(--accent);
-    border-radius: 0 0 2px 2px;
-  }
-  .bottom-nav-icon { font-size: 1.15rem; line-height: 1; }
-  .nav-badge {
-    position: absolute;
-    top: 5px;
-    right: calc(50% - 16px);
-    background: var(--red);
-    color: #fff;
-    font-size: .55rem;
-    font-weight: 700;
-    padding: 1px 5px;
-    border-radius: 10px;
-    line-height: 1.3;
-  }
+  /* ── Bottom Nav (legacy, hidden — replaced by sidebar) ── */
+  .bottom-nav { display: none; }
 
   /* ── Utility ─────────────────────────────────────── */
   .text-green  { color: var(--green); }
@@ -1653,6 +1673,81 @@
 
 <div class="phone-frame">
 
+  <!-- Left Sidebar Nav -->
+  <nav class="sidebar-nav" id="sidebarNav">
+    <button class="sidebar-nav-item active" data-page="home">
+      <span class="sidebar-nav-icon">🏠</span>Home
+    </button>
+    <button class="sidebar-nav-item" data-page="sessions">
+      <span class="sidebar-nav-icon">📋</span>Sessions
+    </button>
+    <button class="sidebar-nav-item" data-page="timeline">
+      <span class="sidebar-nav-icon">⏱️</span>Timeline
+    </button>
+    <button class="sidebar-nav-item" data-page="security">
+      <span class="sidebar-nav-icon">🛡️</span>
+      <span class="nav-badge" id="securityBadgeSidebar" style="display:none;"></span>
+      Security
+    </button>
+    <button class="sidebar-nav-item" data-page="memory">
+      <span class="sidebar-nav-icon">🧠</span>Memory
+    </button>
+    <button class="sidebar-nav-item" data-page="projects">
+      <span class="sidebar-nav-icon">📁</span>Projects
+    </button>
+    <button class="sidebar-nav-item" data-page="trust">
+      <span class="sidebar-nav-icon">🏆</span>Trust
+    </button>
+    <button class="sidebar-nav-item" data-page="guardrails">
+      <span class="sidebar-nav-icon">🚧</span>Guards
+    </button>
+    <button class="sidebar-nav-item" data-page="compliance">
+      <span class="sidebar-nav-icon">📋</span>Audit
+    </button>
+    <button class="sidebar-nav-item" data-page="prompts">
+      <span class="sidebar-nav-icon">💬</span>Prompts
+    </button>
+    <button class="sidebar-nav-item" data-page="commands">
+      <span class="sidebar-nav-icon">🛑</span>Queue
+    </button>
+    <button class="sidebar-nav-item" data-page="export">
+      <span class="sidebar-nav-icon">📊</span>Export
+    </button>
+    <button class="sidebar-nav-item" data-page="agents">
+      <span class="sidebar-nav-icon">🤖</span>Agents
+    </button>
+    <button class="sidebar-nav-item" data-page="correlation">
+      <span class="sidebar-nav-icon">🔗</span>Correlate
+    </button>
+    <button class="sidebar-nav-item" data-page="analysis">
+      <span class="sidebar-nav-icon">🔬</span>Analysis
+    </button>
+    <button class="sidebar-nav-item" data-page="plugins">
+      <span class="sidebar-nav-icon">🧩</span>Plugins
+    </button>
+    <button class="sidebar-nav-item" data-page="team">
+      <span class="sidebar-nav-icon">👥</span>Team
+    </button>
+    <button class="sidebar-nav-item" data-page="response">
+      <span class="sidebar-nav-icon">⚡</span>Response
+    </button>
+    <button class="sidebar-nav-item" data-page="replay">
+      <span class="sidebar-nav-icon">🔄</span>Replay
+    </button>
+    <button class="sidebar-nav-item" data-page="linked">
+      <span class="sidebar-nav-icon">🔗</span>Tasks
+    </button>
+    <button class="sidebar-nav-item" data-page="policy">
+      <span class="sidebar-nav-icon">🏢</span>Policy
+    </button>
+    <button class="sidebar-nav-item" data-page="settings">
+      <span class="sidebar-nav-icon">⚙️</span>Settings
+    </button>
+  </nav>
+
+  <!-- Main Content Column -->
+  <div class="main-column">
+
   <!-- Status Bar -->
   <div class="status-bar">
     <span id="clockDisplay">--:--</span>
@@ -1824,7 +1919,9 @@
 
   </div>
 
-  <!-- Bottom Nav -->
+  </div><!-- /.main-column -->
+
+  <!-- Bottom Nav (hidden, kept for JS compat) -->
   <div class="bottom-nav">
     <button class="bottom-nav-item active" data-page="home">
       <span class="bottom-nav-icon">🏠</span>Home
@@ -2576,8 +2673,8 @@ function showPageDirect(name) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   const target = document.getElementById('page-' + name);
   if (target) target.classList.add('active');
-  document.querySelectorAll('.bottom-nav-item').forEach(b => b.classList.remove('active'));
-  document.querySelector(`[data-page="${name}"]`)?.classList.add('active');
+  document.querySelectorAll('.sidebar-nav-item, .bottom-nav-item').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll(`[data-page="${name}"]`).forEach(b => b.classList.add('active'));
   document.getElementById('contentArea').scrollTop = 0;
 }
 
@@ -2591,7 +2688,7 @@ setInterval(updateClock, 10000);
 updateClock();
 
 // ── Navigation ──
-document.querySelectorAll('.bottom-nav-item').forEach(btn => {
+document.querySelectorAll('.sidebar-nav-item, .bottom-nav-item').forEach(btn => {
   btn.addEventListener('click', () => {
     const page = btn.dataset.page;
     showPage(page);
@@ -2603,8 +2700,8 @@ function showPage(name, sessionId) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   const target = document.getElementById('page-' + name);
   if (target) target.classList.add('active');
-  document.querySelectorAll('.bottom-nav-item').forEach(b => b.classList.remove('active'));
-  document.querySelector(`[data-page="${name}"]`)?.classList.add('active');
+  document.querySelectorAll('.sidebar-nav-item, .bottom-nav-item').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll(`[data-page="${name}"]`).forEach(b => b.classList.add('active'));
   document.getElementById('contentArea').scrollTop = 0;
 
   // Reset timeline badge when viewing timeline
@@ -2785,9 +2882,10 @@ async function loadHome() {
 
   // Update security badge
   if (t.unreviewedAlerts > 0) {
-    const badge = document.getElementById('securityBadge');
-    badge.textContent = t.unreviewedAlerts;
-    badge.style.display = '';
+    const badge = document.getElementById('securityBadgeSidebar');
+    if (badge) { badge.textContent = t.unreviewedAlerts; badge.style.display = ''; }
+    const badge2 = document.getElementById('securityBadge');
+    if (badge2) { badge2.textContent = t.unreviewedAlerts; badge2.style.display = ''; }
   }
 
   document.getElementById('homeContent').innerHTML = `
