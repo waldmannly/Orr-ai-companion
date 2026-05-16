@@ -9,15 +9,26 @@ export class LogTailer extends EventEmitter {
   private watchers = new Map<string, fs.FSWatcher>();
   private offsets = new Map<string, number>();
   private files = new Map<string, TranscriptFile>();
+  private getPersistedOffset: ((filePath: string) => number) | null = null;
+  private persistOffset: ((filePath: string, offset: number) => void) | null = null;
+
+  /** Set offset persistence callbacks (backed by DB) */
+  setOffsetPersistence(get: (filePath: string) => number, set: (filePath: string, offset: number) => void) {
+    this.getPersistedOffset = get;
+    this.persistOffset = set;
+  }
 
   /** Start tailing a transcript file. Processes existing content then watches for appends. */
   async startTailing(file: TranscriptFile) {
     if (this.watchers.has(file.filePath)) return; // Already tailing
 
     this.files.set(file.filePath, file);
-    this.offsets.set(file.filePath, 0);
 
-    // Process existing content
+    // Restore persisted offset so we don't reprocess on restart
+    const savedOffset = this.getPersistedOffset ? this.getPersistedOffset(file.filePath) : 0;
+    this.offsets.set(file.filePath, savedOffset);
+
+    // Process content from where we left off
     await this.readNewLines(file.filePath);
 
     // Watch for changes
@@ -83,7 +94,10 @@ export class LogTailer extends EventEmitter {
       }
     }
 
-    // Update offset to end of file
+    // Update offset to end of file and persist
     this.offsets.set(filePath, stat.size);
+    if (this.persistOffset) {
+      this.persistOffset(filePath, stat.size);
+    }
   }
 }

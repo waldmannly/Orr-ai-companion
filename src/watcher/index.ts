@@ -3,7 +3,7 @@ import { LogTailer } from './log-tailer';
 import { SessionParserState } from '../parser';
 import { classifyRiskWithReasons, extractMemoryOp } from '../risk/classifier';
 import { evaluateAlerts, persistAlerts } from '../alerts/engine';
-import { initDb, upsertSession, insertEvent, insertMemoryOp, getSession, markSessionEnded, enforceRetention, insertAlert, getRecentSessionAlertBurst, upsertBaseline, getBaseline, insertGuardrailViolation, setSessionBranch } from '../storage/db';
+import { initDb, upsertSession, insertEvent, insertMemoryOp, getSession, markSessionEnded, enforceRetention, insertAlert, getRecentSessionAlertBurst, upsertBaseline, getBaseline, insertGuardrailViolation, setSessionBranch, getTailerOffset, setTailerOffset } from '../storage/db';
 import { SessionInfo } from '../parser/event-types';
 import { LogProvider, TranscriptFile, getActiveProviders, createCustomProvider } from '../providers';
 import { broadcastSSE } from '../dashboard/server';
@@ -42,6 +42,9 @@ export class Watcher {
   start() {
     console.log('[watcher] Initializing database...');
     initDb();
+
+    // Wire up offset persistence so restarts don't reprocess files
+    this.tailer.setOffsetPersistence(getTailerOffset, setTailerOffset);
 
     // Initialize compliance hash chain
     initHashChain();

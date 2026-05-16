@@ -86,6 +86,15 @@ function migrate() {
     CREATE INDEX IF NOT EXISTS idx_sessions_source ON sessions(source_tool);
   `);
 
+  // Tailer offset persistence (avoids reprocessing files from byte 0 on restart)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS tailer_offsets (
+      file_path TEXT PRIMARY KEY,
+      byte_offset INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL
+    );
+  `);
+
   // Additive migration: add source_tool to existing DBs that lack it
   try {
     db.prepare("SELECT source_tool FROM events LIMIT 0").run();
@@ -192,14 +201,28 @@ function migrate() {
 
   // One-time dedup cleanup (tracked by pragma so it only runs once)
   const dedupDone = db.pragma('user_version', { simple: true }) as number;
-  if (dedupDone < 1) {
+  if (dedupDone < 2) {
     db.exec(`
       DELETE FROM events WHERE id NOT IN (
         SELECT MIN(id) FROM events GROUP BY session_id, timestamp, event_type, summary
       )
     `);
-    db.pragma('user_version = 1');
+    db.exec(`
+      DELETE FROM alerts WHERE id NOT IN (
+        SELECT MIN(id) FROM alerts GROUP BY session_id, timestamp, alert_type, message
+      )
+    `);
+    // Auto-acknowledge old noisy alerts (historical cleanup)
+    db.exec(`UPDATE alerts SET acknowledged = 1 WHERE acknowledged = 0`);
+    db.pragma('user_version = 2');
   }
+
+  // Unique indexes for dedup (prevents duplicate events/alerts across restarts)
+  // Must run AFTER dedup cleanup above so existing duplicates don't block index creation
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_events_dedup ON events(session_id, timestamp, event_type, summary);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_alerts_dedup ON alerts(session_id, timestamp, alert_type, message);
+  `);
 
   // Prompts table for full untruncated prompt history
   db.exec(`
@@ -427,7 +450,7 @@ export function getAllSessions(limit = 50): SessionInfo[] {
 
 export function insertEvent(event: TrackerEvent): number {
   const stmt = db.prepare(`
-    INSERT INTO events (session_id, timestamp, agent_id, parent_agent_id, event_type, tool_name, risk_level, summary, file_paths, command, parameters, duration_ms, raw_log, source_tool, risk_signals, token_count, anomaly_score)
+    INSERT OR IGNORE INTO events (session_id, timestamp, agent_id, parent_agent_id, event_type, tool_name, risk_level, summary, file_paths, command, parameters, duration_ms, raw_log, source_tool, risk_signals, token_count, anomaly_score)
     VALUES (@session_id, @timestamp, @agent_id, @parent_agent_id, @event_type, @tool_name, @risk_level, @summary, @file_paths, @command, @parameters, @duration_ms, @raw_log, @source_tool, @risk_signals, @token_count, @anomaly_score)
   `);
   const result = stmt.run({
@@ -470,7 +493,7 @@ function hydrateEvent(row: Record<string, unknown>): TrackerEvent {
 
 export function insertAlert(alert: Alert): number {
   const stmt = db.prepare(`
-    INSERT INTO alerts (event_id, session_id, timestamp, alert_type, severity, message, acknowledged)
+    INSERT OR IGNORE INTO alerts (event_id, session_id, timestamp, alert_type, severity, message, acknowledged)
     VALUES (@event_id, @session_id, @timestamp, @alert_type, @severity, @message, @acknowledged)
   `);
   const result = stmt.run({ ...alert, acknowledged: alert.acknowledged ? 1 : 0 });
@@ -1015,4 +1038,19 @@ export function getBranchActivitySummary(projectName: string, branch: string): {
     },
     topRisks,
   };
+}
+
+// ── Tailer Offset Persistence ──
+
+export function getTailerOffset(filePath: string): number {
+  const row = db.prepare('SELECT byte_offset FROM tailer_offsets WHERE file_path = ?').get(filePath) as { byte_offset: number } | undefined;
+  return row?.byte_offset ?? 0;
+}
+
+export function setTailerOffset(filePath: string, offset: number): void {
+  db.prepare(`
+    INSERT INTO tailer_offsets (file_path, byte_offset, updated_at)
+    VALUES (?, ?, ?)
+    ON CONFLICT(file_path) DO UPDATE SET byte_offset = excluded.byte_offset, updated_at = excluded.updated_at
+  `).run(filePath, offset, new Date().toISOString());
 }
