@@ -1522,8 +1522,26 @@ async function viewMemoryFile(filePath) {
 
   const data = await api(`/api/file/read?path=${encodeURIComponent(filePath)}`);
   if (!data || data.error) {
+    // File unreadable — try to show stored content from our memory operations DB
+    const memOps = await api(`/api/memory?limit=200`);
+    const writes = (memOps || []).filter(o => o.memory_path === filePath && o.operation === 'write' && o.content_summary);
+    if (writes.length > 0) {
+      // Show the most recent stored content
+      const latest = writes[writes.length - 1];
+      const allContent = writes.map(w => `── ${w.operation} at ${fmtTime(w.timestamp)} ──\n${w.content_summary}`).join('\n\n');
+      const lines = allContent.split('\n');
+      document.getElementById('fvSize').textContent = `${writes.length} captured write${writes.length > 1 ? 's' : ''}`;
+      document.getElementById('fvContent').innerHTML = `
+        <div style="padding:12px 18px;background:rgba(210,153,34,.08);border-bottom:1px solid var(--border);font-size:.78rem;color:var(--yellow);">
+          ⚠️ Showing captured content from tracker database (file not readable on disk)
+        </div>
+        <pre class="fv-code">${lines.map(l => `<span class="fv-line">${escHtml(l) || ' '}</span>`).join('\n')}</pre>`;
+      document.getElementById('fvInfoBar').textContent = `${lines.length} lines · Last write: ${fmtTime(latest.timestamp)}`;
+      return;
+    }
+    // No stored content either — show explanation
     const isSession = filePath.startsWith('/memories/session/');
-    const hint = data?.hint || (isSession ? 'Session memory is ephemeral and only exists during the session' : 'The file may have been deleted or the workspace is not currently accessible');
+    const hint = data?.hint || (isSession ? 'Session memory is ephemeral and only exists during the active session' : 'The file may have been deleted or the workspace is not currently accessible');
     document.getElementById('fvContent').innerHTML = `<div class="fv-error">
       <div style="font-size:1.1rem;margin-bottom:8px;">⚠️ Cannot read memory file</div>
       <div style="color:var(--text-dim);font-size:.8rem;line-height:1.6;">
