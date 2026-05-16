@@ -1525,6 +1525,128 @@
     font-family: var(--font);
   }
   .copy-btn:hover { opacity: .8; }
+
+  /* ── Command Queue Page ── */
+  .cmd-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 12px 14px;
+    margin-bottom: 10px;
+    transition: border-color .15s;
+  }
+  .cmd-card.blocked { border-left: 3px solid var(--red); }
+  .cmd-card.approved { border-left: 3px solid var(--green); }
+  .cmd-card.denied { border-left: 3px solid var(--text-dim); }
+  .cmd-card.modified { border-left: 3px solid var(--accent); }
+  .cmd-card.expired { border-left: 3px solid var(--surface2); opacity: .7; }
+  .cmd-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+    font-size: .75rem;
+    color: var(--text-dim);
+  }
+  .cmd-command {
+    font-family: var(--mono);
+    font-size: .82rem;
+    line-height: 1.5;
+    background: var(--surface2);
+    border-radius: 4px;
+    padding: 8px 10px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    margin: 6px 0;
+  }
+  .cmd-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+  }
+  .cmd-btn {
+    border: none;
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: .75rem;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: var(--font);
+    transition: opacity .15s;
+  }
+  .cmd-btn:hover { opacity: .8; }
+  .cmd-btn.approve { background: var(--green); color: #000; }
+  .cmd-btn.deny { background: var(--red); color: #fff; }
+  .cmd-btn.edit { background: var(--accent); color: #000; }
+  .cmd-btn.kill-all { background: var(--red); color: #fff; }
+  .cmd-edit-area {
+    width: 100%;
+    font-family: var(--mono);
+    font-size: .82rem;
+    background: var(--surface2);
+    color: var(--text);
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    padding: 8px 10px;
+    margin: 6px 0;
+    resize: vertical;
+    min-height: 60px;
+    line-height: 1.5;
+  }
+  .cmd-notes-input {
+    width: 100%;
+    font-family: var(--font);
+    font-size: .78rem;
+    background: var(--surface2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 6px 8px;
+    margin-top: 4px;
+  }
+  .cmd-modified-label {
+    font-size: .72rem;
+    color: var(--accent);
+    font-weight: 600;
+    margin-bottom: 2px;
+  }
+  .cmd-status-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: .7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+  .cmd-status-badge.blocked { background: rgba(248,81,73,.15); color: var(--red); }
+  .cmd-status-badge.approved { background: rgba(63,185,80,.15); color: var(--green); }
+  .cmd-status-badge.denied { background: rgba(139,148,158,.15); color: var(--text-dim); }
+  .cmd-status-badge.modified { background: rgba(121,192,255,.15); color: var(--accent); }
+  .cmd-status-badge.expired { background: rgba(139,148,158,.1); color: var(--muted); }
+  .cmd-tab-bar {
+    display: flex;
+    gap: 0;
+    margin-bottom: 12px;
+    border-bottom: 2px solid var(--border);
+  }
+  .cmd-tab {
+    padding: 8px 14px;
+    font-size: .8rem;
+    font-weight: 600;
+    cursor: pointer;
+    color: var(--text-dim);
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    transition: color .15s, border-color .15s;
+    background: none;
+    border-top: none;
+    border-left: none;
+    border-right: none;
+    font-family: var(--font);
+  }
+  .cmd-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .cmd-tab:hover { color: var(--text); }
 </style>
 </head>
 <body>
@@ -1635,6 +1757,12 @@
       <div id="promptsContent"><div class="skeleton"></div></div>
     </div>
 
+    <!-- PAGE: COMMANDS -->
+    <div class="page" id="page-commands">
+      <h2 style="margin:0 0 12px">🛑 Command Queue</h2>
+      <div id="commandsContent"><div class="skeleton"></div></div>
+    </div>
+
   </div>
 
   <!-- Bottom Nav -->
@@ -1670,6 +1798,9 @@
     </button>
     <button class="bottom-nav-item" data-page="prompts">
       <span class="bottom-nav-icon">💬</span>Prompts
+    </button>
+    <button class="bottom-nav-item" data-page="commands">
+      <span class="bottom-nav-icon">🛑</span>Queue
     </button>
     <button class="bottom-nav-item" data-page="settings">
       <span class="bottom-nav-icon">⚙️</span>Settings
@@ -2120,6 +2251,23 @@ function connectSSE() {
     // Refresh guardrails page if visible
     if (state.currentPage === 'guardrails') loadGuardrails();
   });
+  es.addEventListener('command-blocked', (e) => {
+    setConnStatus(true);
+    if (state.currentPage === 'commands') loadCommands();
+    showToast('danger', '🛑 Command blocked — review in Queue');
+  });
+  es.addEventListener('command-released', (e) => {
+    setConnStatus(true);
+    if (state.currentPage === 'commands') loadCommands();
+  });
+  es.addEventListener('command-resolved', (e) => {
+    setConnStatus(true);
+    if (state.currentPage === 'commands') loadCommands();
+  });
+  es.addEventListener('commands-denied-all', (e) => {
+    setConnStatus(true);
+    if (state.currentPage === 'commands') loadCommands();
+  });
   es.onerror = () => {
     setConnStatus(false);
     es.close();
@@ -2386,6 +2534,7 @@ function showPage(name, sessionId) {
   else if (name === 'guardrails') loadGuardrails();
   else if (name === 'compliance') loadCompliance();
   else if (name === 'prompts') loadPrompts();
+  else if (name === 'commands') loadCommands();
   else if (name === 'settings') loadSettings();
 }
 
@@ -3851,6 +4000,224 @@ function copyRecovery() {
   }).catch(() => {
     showToast('warn', 'Failed to copy — try selecting manually');
   });
+}
+
+// ══════════════════════════════════════════════════
+// ── COMMAND QUEUE PAGE ──
+// ══════════════════════════════════════════════════
+
+let commandsTab = 'blocked'; // blocked | all | history
+
+async function loadCommands() {
+  const el = document.getElementById('commandsContent');
+  try {
+    const [stats, blocked, resolved] = await Promise.all([
+      api('/api/commands/stats'),
+      api('/api/commands/blocked'),
+      api('/api/commands/resolved?limit=50'),
+    ]);
+
+    let html = '';
+
+    // Stats card
+    html += `
+      <div class="card" style="margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px;">
+          <div style="text-align:center;flex:1;min-width:50px;">
+            <div style="font-size:1.4rem;font-weight:800;color:var(--red);">${stats.blocked}</div>
+            <div style="font-size:.65rem;color:var(--text-dim);">Blocked</div>
+          </div>
+          <div style="text-align:center;flex:1;min-width:50px;">
+            <div style="font-size:1.4rem;font-weight:800;color:var(--green);">${stats.approved}</div>
+            <div style="font-size:.65rem;color:var(--text-dim);">Approved</div>
+          </div>
+          <div style="text-align:center;flex:1;min-width:50px;">
+            <div style="font-size:1.4rem;font-weight:800;color:var(--accent);">${stats.modified}</div>
+            <div style="font-size:.65rem;color:var(--text-dim);">Modified</div>
+          </div>
+          <div style="text-align:center;flex:1;min-width:50px;">
+            <div style="font-size:1.4rem;font-weight:800;color:var(--text-dim);">${stats.denied}</div>
+            <div style="font-size:.65rem;color:var(--text-dim);">Denied</div>
+          </div>
+        </div>
+      </div>`;
+
+    // Tab bar
+    html += `
+      <div class="cmd-tab-bar">
+        <button class="cmd-tab ${commandsTab === 'blocked' ? 'active' : ''}" onclick="commandsTab='blocked';loadCommands()">🚫 Blocked (${blocked.length})</button>
+        <button class="cmd-tab ${commandsTab === 'all' ? 'active' : ''}" onclick="commandsTab='all';loadCommands()">📋 All</button>
+        <button class="cmd-tab ${commandsTab === 'history' ? 'active' : ''}" onclick="commandsTab='history';loadCommands()">📜 History</button>
+      </div>`;
+
+    if (commandsTab === 'blocked') {
+      if (blocked.length === 0) {
+        html += '<div class="empty-state">No blocked commands right now. 🎉<br><span style="font-size:.75rem;">Commands caught by guardrails will appear here for review.</span></div>';
+      } else {
+        // Kill-all button
+        html += `<div style="text-align:right;margin-bottom:8px;"><button class="cmd-btn kill-all" onclick="denyAllCommands()">🛑 Deny All (${blocked.length})</button></div>`;
+        for (const cmd of blocked) {
+          html += renderCommandCard(cmd, true);
+        }
+      }
+    } else if (commandsTab === 'all') {
+      const all = [...blocked, ...resolved].sort((a, b) => new Date(b.blocked_at).getTime() - new Date(a.blocked_at).getTime());
+      if (all.length === 0) {
+        html += '<div class="empty-state">No commands in the queue yet.</div>';
+      } else {
+        for (const cmd of all.slice(0, 100)) {
+          html += renderCommandCard(cmd, cmd.status === 'blocked');
+        }
+      }
+    } else {
+      if (resolved.length === 0) {
+        html += '<div class="empty-state">No resolved commands yet.</div>';
+      } else {
+        for (const cmd of resolved) {
+          html += renderCommandCard(cmd, false);
+        }
+      }
+    }
+
+    el.innerHTML = html;
+  } catch (err) {
+    el.innerHTML = '<div class="error">Failed to load command queue</div>';
+  }
+}
+
+function renderCommandCard(cmd, interactive) {
+  const typeIcon = cmd.action_type === 'command' ? '💻' : cmd.action_type === 'network' ? '🌐' : cmd.action_type === 'file' ? '📄' : '⚡';
+  const ruleLabel = cmd.rule.replace(/_/g, ' ');
+
+  let html = `<div class="cmd-card ${cmd.status}" id="cmd-card-${cmd.id}">`;
+
+  // Header
+  html += `
+    <div class="cmd-header">
+      <span>
+        ${typeIcon}
+        <span class="cmd-status-badge ${cmd.status}">${cmd.status}</span>
+        <span class="badge badge-danger" style="font-size:.65rem;">${esc(ruleLabel)}</span>
+      </span>
+      <span>${fmtTime(cmd.blocked_at)}</span>
+    </div>`;
+
+  // Why blocked
+  html += `<div style="font-size:.78rem;color:var(--muted);margin-bottom:4px;">${esc(cmd.message)}</div>`;
+
+  // Original command
+  html += `<div style="font-size:.68rem;color:var(--text-dim);margin-bottom:2px;">Original:</div>`;
+  html += `<div class="cmd-command">${esc(cmd.original_command)}</div>`;
+
+  // Modified command (if any)
+  if (cmd.modified_command) {
+    html += `<div class="cmd-modified-label">✏️ Modified version:</div>`;
+    html += `<div class="cmd-command" style="border:1px solid var(--accent);">${esc(cmd.modified_command)}</div>`;
+  }
+
+  // Provider / project info
+  html += `
+    <div style="display:flex;gap:4px;flex-wrap:wrap;margin:4px 0;">
+      <span class="badge badge-muted">${esc(cmd.provider)}</span>
+      <span class="badge badge-muted">${esc(cmd.project_name)}</span>
+    </div>`;
+
+  // Notes
+  if (cmd.notes) {
+    html += `<div style="font-size:.75rem;color:var(--text-dim);font-style:italic;margin-top:4px;">📝 ${esc(cmd.notes)}</div>`;
+  }
+
+  // Resolution info
+  if (cmd.resolved_at) {
+    html += `<div style="font-size:.7rem;color:var(--text-dim);margin-top:4px;">Resolved ${fmtTime(cmd.resolved_at)} by ${esc(cmd.resolved_by || '?')}</div>`;
+  }
+
+  // Action buttons (only for blocked commands)
+  if (interactive) {
+    html += `
+      <div class="cmd-actions">
+        <button class="cmd-btn approve" onclick="approveCmd(${cmd.id})">✅ Approve</button>
+        <button class="cmd-btn deny" onclick="denyCmd(${cmd.id})">🚫 Deny</button>
+        <button class="cmd-btn edit" onclick="showEditCmd(${cmd.id})">✏️ Edit & Release</button>
+      </div>
+      <div id="cmd-edit-${cmd.id}" style="display:none;margin-top:8px;">
+        <textarea class="cmd-edit-area" id="cmd-edit-text-${cmd.id}">${esc(cmd.original_command)}</textarea>
+        <input class="cmd-notes-input" id="cmd-notes-${cmd.id}" placeholder="Notes (optional)...">
+        <div class="cmd-actions" style="margin-top:6px;">
+          <button class="cmd-btn edit" onclick="modifyCmd(${cmd.id})">🚀 Release Modified</button>
+          <button class="cmd-btn deny" onclick="hideEditCmd(${cmd.id})">Cancel</button>
+        </div>
+      </div>`;
+  }
+
+  html += '</div>';
+  return html;
+}
+
+function showEditCmd(id) {
+  const el = document.getElementById(`cmd-edit-${id}`);
+  if (el) el.style.display = 'block';
+}
+
+function hideEditCmd(id) {
+  const el = document.getElementById(`cmd-edit-${id}`);
+  if (el) el.style.display = 'none';
+}
+
+async function approveCmd(id) {
+  try {
+    const res = await fetch(`/api/commands/${id}/approve`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    if (res.ok) {
+      showToast('info', '✅ Command approved');
+      loadCommands();
+    } else {
+      const err = await res.json();
+      showToast('warn', err.error || 'Failed to approve');
+    }
+  } catch (e) { showToast('danger', 'Failed to approve command'); }
+}
+
+async function denyCmd(id) {
+  try {
+    const res = await fetch(`/api/commands/${id}/deny`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    if (res.ok) {
+      showToast('warn', '🚫 Command denied');
+      loadCommands();
+    } else {
+      const err = await res.json();
+      showToast('warn', err.error || 'Failed to deny');
+    }
+  } catch (e) { showToast('danger', 'Failed to deny command'); }
+}
+
+async function modifyCmd(id) {
+  const command = document.getElementById(`cmd-edit-text-${id}`)?.value?.trim();
+  const notes = document.getElementById(`cmd-notes-${id}`)?.value?.trim();
+  if (!command) { showToast('warn', 'Command cannot be empty'); return; }
+  try {
+    const res = await fetch(`/api/commands/${id}/modify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command, notes: notes || undefined }),
+    });
+    if (res.ok) {
+      showToast('info', '✏️ Command modified & released');
+      loadCommands();
+    } else {
+      const err = await res.json();
+      showToast('warn', err.error || 'Failed to modify');
+    }
+  } catch (e) { showToast('danger', 'Failed to modify command'); }
+}
+
+async function denyAllCommands() {
+  try {
+    const res = await fetch('/api/commands/deny-all', { method: 'POST' });
+    if (res.ok) {
+      showToast('warn', '🛑 All blocked commands denied');
+      loadCommands();
+    }
+  } catch (e) { showToast('danger', 'Failed to deny all'); }
 }
 
 // ── Live polling (every 5s when on any page) ──

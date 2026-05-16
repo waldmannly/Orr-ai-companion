@@ -27,6 +27,11 @@ import {
   getSessionPrompts, getRecentPrompts, getProjectPrompts, searchPrompts,
   getPromptStats, generateCrashRecovery,
 } from '../prompts';
+import {
+  getBlockedCommands, getResolvedCommands, getRecentCommands, getSessionCommands,
+  getCommandById, approveCommand, denyCommand, modifyAndRelease,
+  denyAllBlocked, getCommandQueueStats, getOrphanedBlocked, expireStaleCommands,
+} from '../commands';
 
 // SSE — broadcast events to connected dashboard clients
 const sseClients = new Set<express.Response>();
@@ -518,6 +523,91 @@ export function createDashboardServer(config: Config): express.Express {
     const denied = denyAllPending();
     for (const d of denied) broadcastSSE('intervention-resolved', d);
     res.json({ denied: denied.length });
+  });
+
+  // ── Command Queue ──
+
+  /** Get all blocked (pending) commands */
+  app.get('/api/commands/blocked', (_req, res) => {
+    res.json(getBlockedCommands());
+  });
+
+  /** Get resolved commands (approved/denied/modified/expired) */
+  app.get('/api/commands/resolved', (req, res) => {
+    const limit = Math.min(Number(req.query.limit) || 50, 500);
+    res.json(getResolvedCommands(limit));
+  });
+
+  /** Get all recent commands (any status) */
+  app.get('/api/commands', (req, res) => {
+    const limit = Math.min(Number(req.query.limit) || 100, 500);
+    res.json(getRecentCommands(limit));
+  });
+
+  /** Get command queue stats */
+  app.get('/api/commands/stats', (_req, res) => {
+    res.json(getCommandQueueStats());
+  });
+
+  /** Get orphaned blocked commands (from before last crash/restart) */
+  app.get('/api/commands/orphaned', (_req, res) => {
+    res.json(getOrphanedBlocked());
+  });
+
+  /** Get commands for a specific session */
+  app.get('/api/sessions/:id/commands', (req, res) => {
+    res.json(getSessionCommands(req.params.id));
+  });
+
+  /** Get a single command by ID */
+  app.get('/api/commands/:id', (req, res) => {
+    const cmd = getCommandById(Number(req.params.id));
+    if (!cmd) return res.status(404).json({ error: 'Command not found' });
+    res.json(cmd);
+  });
+
+  /** Approve a blocked command as-is */
+  app.post('/api/commands/:id/approve', (req, res) => {
+    const { notes } = req.body || {};
+    const cmd = approveCommand(Number(req.params.id), 'user', notes);
+    if (!cmd) return res.status(404).json({ error: 'Command not found or not blocked' });
+    broadcastSSE('command-released', cmd);
+    res.json(cmd);
+  });
+
+  /** Deny a blocked command */
+  app.post('/api/commands/:id/deny', (req, res) => {
+    const { notes } = req.body || {};
+    const cmd = denyCommand(Number(req.params.id), 'user', notes);
+    if (!cmd) return res.status(404).json({ error: 'Command not found or not blocked' });
+    broadcastSSE('command-resolved', cmd);
+    res.json(cmd);
+  });
+
+  /** Edit and release a modified version of the blocked command */
+  app.post('/api/commands/:id/modify', (req, res) => {
+    const { command, notes } = req.body || {};
+    if (!command || typeof command !== 'string' || !command.trim()) {
+      return res.status(400).json({ error: 'command is required' });
+    }
+    const cmd = modifyAndRelease(Number(req.params.id), command.trim(), 'user', notes);
+    if (!cmd) return res.status(404).json({ error: 'Command not found or not blocked' });
+    broadcastSSE('command-released', cmd);
+    res.json(cmd);
+  });
+
+  /** Deny all blocked commands (emergency kill-all) */
+  app.post('/api/commands/deny-all', (_req, res) => {
+    const count = denyAllBlocked();
+    broadcastSSE('commands-denied-all', { count });
+    res.json({ denied: count });
+  });
+
+  /** Expire stale blocked commands */
+  app.post('/api/commands/expire', (req, res) => {
+    const maxAgeMs = Number(req.body?.maxAgeMs) || 3600_000;
+    const count = expireStaleCommands(maxAgeMs);
+    res.json({ expired: count });
   });
 
   // ── Rule Packs ──

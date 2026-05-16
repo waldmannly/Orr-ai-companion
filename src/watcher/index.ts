@@ -14,6 +14,7 @@ import { updateTrustScore } from '../trust';
 import { appendToChain, initHashChain } from '../compliance';
 import { evaluatePackRules, loadPacksFromDirectory } from '../rules/packs';
 import { insertPrompt, getSessionPromptCount } from '../prompts';
+import { queueBlockedCommand } from '../commands';
 import { execSync } from 'child_process';
 
 export class Watcher {
@@ -275,6 +276,20 @@ export class Watcher {
             provider: provider?.id || 'unknown',
           });
           broadcastSSE('intervention-pending', intervention);
+
+          // Persist blocked command to DB (survives crashes, supports edit+relaunch)
+          const queued = queueBlockedCommand({
+            session_id: file.sessionId,
+            event_id: eventId,
+            provider: provider?.id || 'unknown',
+            project_name: file.projectName || 'unknown',
+            action_type: actionType,
+            original_command: actionTarget,
+            rule: v.rule,
+            severity: v.severity,
+            message: v.message,
+          });
+          broadcastSSE('command-blocked', queued);
         }
       }
       // Elevate risk level if guardrail fires

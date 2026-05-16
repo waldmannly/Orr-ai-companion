@@ -209,6 +209,31 @@ function migrate() {
     CREATE INDEX IF NOT EXISTS idx_prompts_timestamp ON prompts(timestamp);
     CREATE INDEX IF NOT EXISTS idx_prompts_event ON prompts(event_id);
   `);
+
+  // Command queue for persistent blocked command tracking
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS command_queue (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      event_id INTEGER NOT NULL,
+      provider TEXT NOT NULL DEFAULT '',
+      project_name TEXT NOT NULL DEFAULT '',
+      action_type TEXT NOT NULL DEFAULT 'command',
+      original_command TEXT NOT NULL,
+      modified_command TEXT,
+      rule TEXT NOT NULL,
+      severity TEXT NOT NULL,
+      message TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'blocked',
+      blocked_at TEXT NOT NULL,
+      resolved_at TEXT,
+      resolved_by TEXT,
+      notes TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_cmdq_session ON command_queue(session_id);
+    CREATE INDEX IF NOT EXISTS idx_cmdq_status ON command_queue(status);
+    CREATE INDEX IF NOT EXISTS idx_cmdq_blocked_at ON command_queue(blocked_at);
+  `);
 }
 
 // ── Retention cleanup ──
