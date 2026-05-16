@@ -103,12 +103,16 @@ function migrate() {
   } catch {
     db.exec(`ALTER TABLE events ADD COLUMN risk_signals TEXT`);
   }
-  // Cleanup: remove duplicate events (same session, timestamp, type, summary)
-  db.exec(`
-    DELETE FROM events WHERE id NOT IN (
-      SELECT MIN(id) FROM events GROUP BY session_id, timestamp, event_type, summary
-    )
-  `);
+  // One-time dedup cleanup (tracked by pragma so it only runs once)
+  const dedupDone = db.pragma('user_version', { simple: true }) as number;
+  if (dedupDone < 1) {
+    db.exec(`
+      DELETE FROM events WHERE id NOT IN (
+        SELECT MIN(id) FROM events GROUP BY session_id, timestamp, event_type, summary
+      )
+    `);
+    db.pragma('user_version = 1');
+  }
 }
 
 // ── Retention cleanup ──

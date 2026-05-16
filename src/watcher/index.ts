@@ -141,14 +141,7 @@ export class Watcher {
     const hashes = this.recentHashes.get(file.sessionId)!;
     if (hashes.has(fingerprint)) return; // duplicate
     hashes.add(fingerprint);
-    // Cap set size to avoid unbounded growth
-    if (hashes.size > 500) {
-      const iter = hashes.values();
-      for (let i = 0; i < 250; i++) iter.next();
-      const keep = new Set<string>();
-      for (const v of iter) keep.add(v);
-      this.recentHashes.set(file.sessionId, keep);
-    }
+    if (hashes.size > 1000) hashes.clear(); // reset to avoid unbounded growth
 
     // Classify risk with structured reasons
     const riskResult = classifyRiskWithReasons(event, this.config);
