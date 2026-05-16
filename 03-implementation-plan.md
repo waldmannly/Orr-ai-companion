@@ -143,7 +143,7 @@ Users define sensitive file patterns in `config.json`:
       "**/private/**"
     ],
     "exactPaths": [
-      "C:/Users/waldm/Documents/personal-info.txt"
+      "C:/Users/yourname/Documents/personal-info.txt"
     ]
   }
 }
@@ -237,7 +237,7 @@ Group sessions by workspace/project:
 ```json
 {
   "watchPaths": [
-    "C:/Users/waldm/AppData/Roaming/Code/User/workspaceStorage"
+    "C:/Users/yourname/AppData/Roaming/Code/User/workspaceStorage"
   ],
   "sensitiveFiles": {
     "patterns": ["**/.env*", "**/*.pem", "**/*.key"],

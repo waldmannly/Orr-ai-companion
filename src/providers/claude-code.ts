@@ -279,9 +279,9 @@ function extractClaudeText(content: ClaudeContent[] | string | undefined): strin
 }
 
 /** Decode Claude Code project directory name back to a readable project name.
- * Format: c--Users-waldm-Desktop-Files-code-projects-my-app → my-app */
+ * Format: c--Users-jane-Desktop-code-projects-my-app → my-app */
 function decodeClaudeProjectName(dirName: string): string {
-  // Claude encodes paths like: c--Users-waldm-Desktop-Files-code-projects-my-app
+  // Claude encodes paths like: c--Users-jane-Desktop-code-projects-my-app
   const parts = dirName.split('-');
   // Take the last meaningful segment as the project name
   // Filter out empty parts and common path components
