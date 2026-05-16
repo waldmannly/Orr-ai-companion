@@ -451,7 +451,7 @@ export function createDashboardServer(config: Config): express.Express {
   // ── Webhook test ──
   app.post('/api/notifications/test', async (req, res) => {
     const { type } = req.body;
-    if (type !== 'slack' && type !== 'webhook') return res.status(400).json({ error: 'type must be slack or webhook' });
+    if (type !== 'slack' && type !== 'webhook' && type !== 'teams') return res.status(400).json({ error: 'type must be slack, webhook, or teams' });
     const result = await testWebhook(type);
     res.json(result);
   });

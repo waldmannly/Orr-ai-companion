@@ -16,6 +16,7 @@ export interface WebhookConfig {
 export interface NotificationsConfig {
   slack: WebhookConfig;
   webhook: WebhookConfig;
+  teams: WebhookConfig;
   desktop: { enabled: boolean; minSeverity: 'watch' | 'warn' | 'danger' };
 }
 
@@ -92,6 +93,7 @@ const DEFAULTS: Config = {
   notifications: {
     slack: { enabled: false, url: '', minSeverity: 'warn' },
     webhook: { enabled: false, url: '', minSeverity: 'danger' },
+    teams: { enabled: false, url: '', minSeverity: 'warn' },
     desktop: { enabled: true, minSeverity: 'danger' },
   },
   alertRules: {

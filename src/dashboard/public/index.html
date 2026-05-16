@@ -3626,6 +3626,25 @@ function renderSettings() {
 
       <div class="setting-row">
         <div class="setting-info">
+          <div class="setting-name">🟣 Microsoft Teams</div>
+          <div class="setting-desc">Send alerts to a Teams channel via incoming webhook</div>
+        </div>
+        <div class="setting-controls">
+          <select class="sev-select" id="notifTeamsSev" onchange="markSettingsDirty()">
+            <option value="watch" ${(c.notifications?.teams?.minSeverity||'warn') === 'watch' ? 'selected' : ''}>watch+</option>
+            <option value="warn" ${(c.notifications?.teams?.minSeverity||'warn') === 'warn' ? 'selected' : ''}>warn+</option>
+            <option value="danger" ${(c.notifications?.teams?.minSeverity||'warn') === 'danger' ? 'selected' : ''}>danger only</option>
+          </select>
+          <div class="toggle ${c.notifications?.teams?.enabled ? 'on' : ''}" onclick="this.classList.toggle('on');markSettingsDirty()" id="notifTeamsToggle"></div>
+        </div>
+      </div>
+      <div class="setting-row" style="flex-direction:column;align-items:stretch;">
+        <input class="sev-select" type="text" placeholder="https://your-org.webhook.office.com/..." value="${esc(c.notifications?.teams?.url || '')}" id="notifTeamsUrl" style="width:100%;box-sizing:border-box;" oninput="markSettingsDirty()">
+        <button class="settings-reset-btn" style="margin-top:6px;width:auto;align-self:flex-end;" onclick="testNotif('teams')">Test Teams</button>
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-info">
           <div class="setting-name">🌐 Generic Webhook</div>
           <div class="setting-desc">POST alert JSON to a custom HTTP endpoint</div>
         </div>
@@ -3787,6 +3806,11 @@ async function saveSettings() {
       enabled: document.getElementById('notifSlackToggle')?.classList.contains('on') ?? false,
       url: document.getElementById('notifSlackUrl')?.value || '',
       minSeverity: document.getElementById('notifSlackSev')?.value || 'warn',
+    },
+    teams: {
+      enabled: document.getElementById('notifTeamsToggle')?.classList.contains('on') ?? false,
+      url: document.getElementById('notifTeamsUrl')?.value || '',
+      minSeverity: document.getElementById('notifTeamsSev')?.value || 'warn',
     },
     webhook: {
       enabled: document.getElementById('notifWebhookToggle')?.classList.contains('on') ?? false,

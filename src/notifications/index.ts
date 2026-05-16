@@ -15,6 +15,9 @@ export async function dispatchAlertNotifications(alert: Alert): Promise<void> {
   if (shouldNotify(cfg.webhook, alert.severity)) {
     promises.push(sendWebhook(cfg.webhook, alert));
   }
+  if (cfg.teams && shouldNotify(cfg.teams, alert.severity)) {
+    promises.push(sendTeams(cfg.teams, alert));
+  }
 
   if (promises.length > 0) {
     await Promise.allSettled(promises);
@@ -83,9 +86,59 @@ async function sendWebhook(cfg: WebhookConfig, alert: Alert): Promise<void> {
   }
 }
 
-export async function testWebhook(type: 'slack' | 'webhook'): Promise<{ ok: boolean; error?: string }> {
+async function sendTeams(cfg: WebhookConfig, alert: Alert): Promise<void> {
+  const color = alert.severity === 'danger' ? 'attention' : alert.severity === 'warn' ? 'warning' : 'accent';
+  const payload = {
+    type: 'message',
+    attachments: [{
+      contentType: 'application/vnd.microsoft.card.adaptive',
+      content: {
+        $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
+        type: 'AdaptiveCard',
+        version: '1.4',
+        body: [
+          {
+            type: 'TextBlock',
+            size: 'medium',
+            weight: 'bolder',
+            color,
+            text: `[${alert.severity.toUpperCase()}] ${alert.alert_type}`,
+          },
+          {
+            type: 'TextBlock',
+            text: alert.message,
+            wrap: true,
+          },
+          {
+            type: 'ColumnSet',
+            columns: [
+              { type: 'Column', width: 'auto', items: [{ type: 'TextBlock', text: 'Session', weight: 'bolder', size: 'small' }, { type: 'TextBlock', text: alert.session_id.slice(0, 12), size: 'small' }] },
+              { type: 'Column', width: 'auto', items: [{ type: 'TextBlock', text: 'Time', weight: 'bolder', size: 'small' }, { type: 'TextBlock', text: new Date(alert.timestamp).toLocaleString(), size: 'small' }] },
+            ],
+          },
+        ],
+      },
+    }],
+  };
+
+  try {
+    const resp = await fetch(cfg.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!resp.ok) {
+      console.warn(`[notifications] Teams webhook failed: ${resp.status}`);
+    }
+  } catch (err) {
+    console.warn(`[notifications] Teams webhook error:`, err);
+  }
+}
+
+export async function testWebhook(type: 'slack' | 'webhook' | 'teams'): Promise<{ ok: boolean; error?: string }> {
   const cfg = loadConfig().notifications;
-  const channel = type === 'slack' ? cfg.slack : cfg.webhook;
+  const channel = type === 'slack' ? cfg.slack : type === 'teams' ? cfg.teams : cfg.webhook;
   if (!channel.url) return { ok: false, error: 'No URL configured' };
 
   const testAlert: Alert = {
@@ -101,6 +154,8 @@ export async function testWebhook(type: 'slack' | 'webhook'): Promise<{ ok: bool
   try {
     if (type === 'slack') {
       await sendSlack(channel, testAlert);
+    } else if (type === 'teams') {
+      await sendTeams(channel, testAlert);
     } else {
       await sendWebhook(channel, testAlert);
     }
