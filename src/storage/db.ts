@@ -134,6 +134,53 @@ function migrate() {
     );
     CREATE INDEX IF NOT EXISTS idx_baselines_project ON baselines(project_name);
   `);
+
+  // Trust scores table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS trust_scores (
+      provider TEXT PRIMARY KEY,
+      score REAL NOT NULL DEFAULT 85,
+      total_sessions INTEGER NOT NULL DEFAULT 0,
+      clean_sessions INTEGER NOT NULL DEFAULT 0,
+      incidents INTEGER NOT NULL DEFAULT 0,
+      last_updated TEXT NOT NULL
+    );
+  `);
+
+  // Audit chain table (hash chain for compliance)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS audit_chain (
+      seq INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_id INTEGER NOT NULL,
+      hash TEXT NOT NULL,
+      previous_hash TEXT NOT NULL,
+      timestamp TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_audit_chain_event ON audit_chain(event_id);
+  `);
+
+  // Guardrail violations table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS guardrail_violations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_id INTEGER,
+      session_id TEXT NOT NULL,
+      timestamp TEXT NOT NULL,
+      rule TEXT NOT NULL,
+      severity TEXT NOT NULL,
+      message TEXT NOT NULL,
+      blocked INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_guardrail_session ON guardrail_violations(session_id);
+  `);
+
+  // Additive: git_branch on sessions
+  try {
+    db.prepare("SELECT git_branch FROM sessions LIMIT 0").run();
+  } catch {
+    db.exec(`ALTER TABLE sessions ADD COLUMN git_branch TEXT`);
+  }
+
   // One-time dedup cleanup (tracked by pragma so it only runs once)
   const dedupDone = db.pragma('user_version', { simple: true }) as number;
   if (dedupDone < 1) {
@@ -586,4 +633,110 @@ export function getGlobalMetrics(): {
     avgTimeToFirstDanger: Math.round(avgRow.avg_diff || 0),
     projectsCovered,
   };
+}
+
+// ── Guardrail violations ──
+
+export function insertGuardrailViolation(v: {
+  event_id: number | null; session_id: string; timestamp: string;
+  rule: string; severity: string; message: string; blocked: boolean;
+}): void {
+  db.prepare(`
+    INSERT INTO guardrail_violations (event_id, session_id, timestamp, rule, severity, message, blocked)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(v.event_id, v.session_id, v.timestamp, v.rule, v.severity, v.message, v.blocked ? 1 : 0);
+}
+
+export function getGuardrailViolations(sessionId?: string, limit = 100): Array<{
+  id: number; event_id: number; session_id: string; timestamp: string;
+  rule: string; severity: string; message: string; blocked: boolean;
+}> {
+  let sql = 'SELECT * FROM guardrail_violations';
+  const params: unknown[] = [];
+  if (sessionId) { sql += ' WHERE session_id = ?'; params.push(sessionId); }
+  sql += ' ORDER BY timestamp DESC LIMIT ?';
+  params.push(limit);
+  return (db.prepare(sql).all(...params) as Array<Record<string, unknown>>).map(r => ({
+    id: r.id as number, event_id: r.event_id as number, session_id: r.session_id as string,
+    timestamp: r.timestamp as string, rule: r.rule as string, severity: r.severity as string,
+    message: r.message as string, blocked: r.blocked === 1,
+  }));
+}
+
+// ── Branch/PR linking ──
+
+export function setSessionBranch(sessionId: string, branch: string): void {
+  db.prepare('UPDATE sessions SET git_branch = ? WHERE id = ?').run(branch, sessionId);
+}
+
+export function getSessionsByBranch(branch: string): SessionInfo[] {
+  return db.prepare('SELECT * FROM sessions WHERE git_branch = ? ORDER BY started_at DESC')
+    .all(branch) as SessionInfo[];
+}
+
+export function getBranchSummary(branch: string): {
+  sessions: number; totalEvents: number; dangerCount: number; warnCount: number;
+  providers: string[]; firstSession: string | null; lastSession: string | null;
+} {
+  const sessions = db.prepare('SELECT * FROM sessions WHERE git_branch = ?').all(branch) as SessionInfo[];
+  const providers = [...new Set(sessions.map(s => s.source_tool))];
+  return {
+    sessions: sessions.length,
+    totalEvents: sessions.reduce((a, s) => a + s.total_events, 0),
+    dangerCount: sessions.reduce((a, s) => a + s.danger_count, 0),
+    warnCount: sessions.reduce((a, s) => a + s.warn_count, 0),
+    providers,
+    firstSession: sessions.length > 0 ? sessions[sessions.length - 1].started_at : null,
+    lastSession: sessions.length > 0 ? sessions[0].started_at : null,
+  };
+}
+
+// ── IDE API helpers ──
+
+export function getActiveSessionStatus(): {
+  sessionId: string | null; provider: string; grade: string;
+  eventsLastMinute: number; dangerCount: number; tokenUsage: number;
+} {
+  const cutoff = new Date(Date.now() - 5 * 60000).toISOString();
+  const session = db.prepare(`
+    SELECT * FROM sessions WHERE ended_at IS NULL OR ended_at > ? ORDER BY started_at DESC LIMIT 1
+  `).get(cutoff) as SessionInfo | undefined;
+
+  if (!session) {
+    return { sessionId: null, provider: 'none', grade: 'A', eventsLastMinute: 0, dangerCount: 0, tokenUsage: 0 };
+  }
+
+  const oneMinAgo = new Date(Date.now() - 60000).toISOString();
+  const eventsLastMinute = (db.prepare(
+    'SELECT COUNT(*) as c FROM events WHERE session_id = ? AND timestamp > ?'
+  ).get(session.id, oneMinAgo) as { c: number }).c;
+
+  const tokens = getSessionTokens(session.id);
+  const health = getSessionHealthMetrics(session.id);
+
+  return {
+    sessionId: session.id,
+    provider: session.source_tool,
+    grade: health.grade,
+    eventsLastMinute,
+    dangerCount: session.danger_count,
+    tokenUsage: tokens,
+  };
+}
+
+export function getFileActivity(filePath: string, limit = 50): Array<{
+  timestamp: string; event_type: string; risk_level: string;
+  summary: string; session_id: string; provider: string;
+}> {
+  const like = `%${filePath.replace(/\\/g, '/')}%`;
+  return db.prepare(`
+    SELECT e.timestamp, e.event_type, e.risk_level, e.summary, e.session_id, s.source_tool as provider
+    FROM events e
+    LEFT JOIN sessions s ON e.session_id = s.id
+    WHERE e.file_paths LIKE ?
+    ORDER BY e.timestamp DESC LIMIT ?
+  `).all(like, limit) as Array<{
+    timestamp: string; event_type: string; risk_level: string;
+    summary: string; session_id: string; provider: string;
+  }>;
 }

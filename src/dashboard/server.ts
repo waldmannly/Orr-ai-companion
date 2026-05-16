@@ -11,8 +11,13 @@ import {
   getAllBaselines, getSessionTokens, getProjectTokens,
   getMemoryLineage, getMemoryHealth,
   getEventsFiltered, getSessionHealthMetrics, getGlobalMetrics,
+  getGuardrailViolations, getSessionsByBranch, getBranchSummary,
+  getActiveSessionStatus, getFileActivity, setSessionBranch,
 } from '../storage/db';
 import { testWebhook } from '../notifications';
+import { getAllTrustScores, getTrustScore, getProviderComparison } from '../trust';
+import { verifyChain, generateEvidenceReport, exportSignedSession, initHashChain } from '../compliance';
+import { getAvailablePacks, loadPackFromFile, loadPacksFromDirectory } from '../rules/packs';
 
 // SSE — broadcast events to connected dashboard clients
 const sseClients = new Set<express.Response>();
@@ -402,6 +407,103 @@ export function createDashboardServer(config: Config): express.Express {
     if (type !== 'slack' && type !== 'webhook') return res.status(400).json({ error: 'type must be slack or webhook' });
     const result = await testWebhook(type);
     res.json(result);
+  });
+
+  // ── Trust Scores ──
+  app.get('/api/trust', (_req, res) => {
+    res.json(getAllTrustScores());
+  });
+
+  app.get('/api/trust/:provider', (req, res) => {
+    const score = getTrustScore(req.params.provider);
+    if (!score) return res.status(404).json({ error: 'No data for provider' });
+    res.json(score);
+  });
+
+  app.get('/api/trust/compare/all', (_req, res) => {
+    res.json(getProviderComparison());
+  });
+
+  // ── Compliance ──
+  app.get('/api/compliance/chain/verify', (_req, res) => {
+    res.json(verifyChain());
+  });
+
+  app.get('/api/compliance/report', (req, res) => {
+    const startDate = req.query.start as string;
+    const endDate = req.query.end as string;
+    if (!startDate || !endDate) return res.status(400).json({ error: 'start and end query params required' });
+    res.json(generateEvidenceReport(startDate, endDate));
+  });
+
+  app.get('/api/compliance/session/:id/signed', (req, res) => {
+    const result = exportSignedSession(req.params.id);
+    if (!result.session) return res.status(404).json({ error: 'Session not found' });
+    res.setHeader('Content-Disposition', `attachment; filename="signed-session-${req.params.id.substring(0, 8)}.json"`);
+    res.json(result);
+  });
+
+  // ── Guardrails ──
+  app.get('/api/guardrails/violations', (req, res) => {
+    const sessionId = req.query.session_id as string | undefined;
+    const limit = parseInt(req.query.limit as string) || 100;
+    res.json(getGuardrailViolations(sessionId, limit));
+  });
+
+  app.get('/api/guardrails/config', (_req, res) => {
+    res.json(config.guardrails || {});
+  });
+
+  // ── Rule Packs ──
+  app.get('/api/rules/packs', (_req, res) => {
+    res.json(getAvailablePacks());
+  });
+
+  app.post('/api/rules/packs/load', (req, res) => {
+    const { path: packPath } = req.body;
+    if (!packPath) return res.status(400).json({ error: 'path required' });
+    try {
+      const pack = loadPackFromFile(packPath);
+      res.json({ ok: true, pack: { id: pack.id, name: pack.name, rules: pack.rules.length } });
+    } catch (err) {
+      res.status(400).json({ error: String(err) });
+    }
+  });
+
+  // ── Branch/PR Linking ──
+  app.get('/api/branches/:branch/sessions', (req, res) => {
+    res.json(getSessionsByBranch(req.params.branch));
+  });
+
+  app.get('/api/branches/:branch/summary', (req, res) => {
+    res.json(getBranchSummary(req.params.branch));
+  });
+
+  app.post('/api/sessions/:id/branch', (req, res) => {
+    const { branch } = req.body;
+    if (!branch) return res.status(400).json({ error: 'branch required' });
+    setSessionBranch(req.params.id, branch);
+    res.json({ ok: true });
+  });
+
+  // ── IDE API (for VS Code extension status bar / inline annotations) ──
+  app.get('/api/ide/status', (_req, res) => {
+    res.json(getActiveSessionStatus());
+  });
+
+  app.get('/api/ide/file-activity', (req, res) => {
+    const filePath = req.query.path as string;
+    if (!filePath) return res.status(400).json({ error: 'path required' });
+    const limit = parseInt(req.query.limit as string) || 50;
+    res.json(getFileActivity(filePath, limit));
+  });
+
+  app.get('/api/ide/session-summary', (_req, res) => {
+    const status = getActiveSessionStatus();
+    if (!status.sessionId) return res.json({ active: false });
+    const health = getSessionHealthMetrics(status.sessionId);
+    const violations = getGuardrailViolations(status.sessionId, 10);
+    res.json({ active: true, ...status, health, recentViolations: violations });
   });
 
   // Fallback — serve index.html for SPA routes

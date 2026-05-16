@@ -3,11 +3,16 @@ import { LogTailer } from './log-tailer';
 import { SessionParserState } from '../parser';
 import { classifyRiskWithReasons, extractMemoryOp } from '../risk/classifier';
 import { evaluateAlerts, persistAlerts } from '../alerts/engine';
-import { initDb, upsertSession, insertEvent, insertMemoryOp, getSession, markSessionEnded, enforceRetention, insertAlert, getRecentSessionAlertBurst, upsertBaseline, getBaseline } from '../storage/db';
+import { initDb, upsertSession, insertEvent, insertMemoryOp, getSession, markSessionEnded, enforceRetention, insertAlert, getRecentSessionAlertBurst, upsertBaseline, getBaseline, insertGuardrailViolation, setSessionBranch } from '../storage/db';
 import { SessionInfo } from '../parser/event-types';
 import { LogProvider, TranscriptFile, getActiveProviders, createCustomProvider } from '../providers';
 import { broadcastSSE } from '../dashboard/server';
 import { dispatchAlertNotifications } from '../notifications';
+import { evaluateGuardrails } from '../guardrails';
+import { updateTrustScore } from '../trust';
+import { appendToChain, initHashChain } from '../compliance';
+import { evaluatePackRules, loadPacksFromDirectory } from '../rules/packs';
+import { execSync } from 'child_process';
 
 export class Watcher {
   private config: Config;
@@ -31,6 +36,15 @@ export class Watcher {
   start() {
     console.log('[watcher] Initializing database...');
     initDb();
+
+    // Initialize compliance hash chain
+    initHashChain();
+
+    // Load community rule packs if configured
+    if (this.config.rulePacksDir) {
+      const packs = loadPacksFromDirectory(this.config.rulePacksDir);
+      if (packs.length > 0) console.log(`[watcher] Loaded ${packs.length} external rule pack(s)`);
+    }
 
     // Enforce retention policy on startup
     if (this.config.retention.maxAgeDays > 0) {
@@ -83,6 +97,17 @@ export class Watcher {
             markSessionEnded(sessionId, new Date(lastTime).toISOString());
             this.sessionLastActivity.delete(sessionId);
             broadcastSSE('session-ended', { sessionId });
+            // Update trust score for the provider when session ends
+            const provider = this.sessionProvider.get(sessionId);
+            if (provider) {
+              updateTrustScore({
+                provider: provider.id,
+                sessionId,
+                dangerCount: counters.danger,
+                warnCount: counters.warn,
+                totalEvents: counters.total,
+              });
+            }
           }
         }
       }
@@ -107,6 +132,8 @@ export class Watcher {
         warn_count: 0,
         source_tool: provider.id,
       });
+      // Detect git branch for session linking
+      this.detectBranch(file);
     }
 
     if (!this.sessionCounters.has(file.sessionId)) {
@@ -118,6 +145,20 @@ export class Watcher {
     }
 
     this.tailer.startTailing(file);
+  }
+
+  private detectBranch(file: TranscriptFile) {
+    try {
+      const workspace = file.workspace || process.cwd();
+      const branch = execSync('git rev-parse --abbrev-ref HEAD', {
+        cwd: workspace, encoding: 'utf-8', timeout: 3000, stdio: ['pipe', 'pipe', 'pipe']
+      }).trim();
+      if (branch && branch !== 'HEAD') {
+        setSessionBranch(file.sessionId, branch);
+      }
+    } catch {
+      // Not a git repo or git not available — skip
+    }
   }
 
   private processLine(line: string, file: TranscriptFile) {
@@ -158,6 +199,46 @@ export class Watcher {
     // Store event
     const eventId = insertEvent(event);
     event.id = eventId;
+
+    // Append to compliance hash chain
+    appendToChain(event);
+
+    // Evaluate community rule packs for additional signals
+    const packSignals = evaluatePackRules(event);
+    if (packSignals.length > 0) {
+      // Merge pack signals with existing risk signals
+      if (!event.risk_signals) event.risk_signals = [];
+      event.risk_signals.push(...packSignals);
+      // Elevate risk level if pack rules found higher severity
+      for (const sig of packSignals) {
+        if (sig.level === 'danger' && event.risk_level !== 'danger') {
+          event.risk_level = 'danger';
+        } else if (sig.level === 'warn' && event.risk_level === 'info') {
+          event.risk_level = 'warn';
+        }
+      }
+    }
+
+    // Evaluate guardrails
+    const violations = evaluateGuardrails(event, this.config.guardrails, file.sessionId);
+    if (violations.length > 0) {
+      for (const v of violations) {
+        insertGuardrailViolation({
+          event_id: eventId,
+          session_id: file.sessionId,
+          timestamp: event.timestamp,
+          rule: v.rule,
+          severity: v.severity,
+          message: v.message,
+          blocked: v.blocked,
+        });
+        broadcastSSE('guardrail', { rule: v.rule, severity: v.severity, message: v.message, blocked: v.blocked, session_id: file.sessionId });
+      }
+      // Elevate risk level if guardrail fires
+      if (violations.some(v => v.severity === 'danger') && event.risk_level !== 'danger') {
+        event.risk_level = 'danger';
+      }
+    }
 
     // Baseline tracking: update per-project metrics
     const projectName = file.projectName || 'unknown';

@@ -1,5 +1,6 @@
 import * as path from 'path';
 import * as fs from 'fs';
+import { GuardrailsConfig, GUARDRAILS_DEFAULTS } from '../guardrails';
 
 export interface AlertRuleConfig {
   enabled: boolean;
@@ -60,6 +61,9 @@ export interface Config {
     paths: string[];
     icon?: string;
   }>;
+  guardrails: GuardrailsConfig;
+  /** Directory for community rule packs */
+  rulePacksDir: string;
 }
 
 const DEFAULT_RULE: AlertRuleConfig = { enabled: true, minSeverity: 'warn' };
@@ -100,6 +104,8 @@ const DEFAULTS: Config = {
   dashboard: { port: 3847, host: '127.0.0.1' },
   retention: { maxAgeDays: 90, maxDbSizeMB: 500 },
   customProviders: [],
+  guardrails: GUARDRAILS_DEFAULTS,
+  rulePacksDir: '',
 };
 
 let configPath = '';
@@ -123,6 +129,7 @@ export function loadConfig(): Config {
 
 export function mergeConfig(raw: Record<string, unknown>): Config {
   const rawNotif = (raw.notifications || {}) as Record<string, unknown>;
+  const rawGuardrails = (raw.guardrails || {}) as Record<string, unknown>;
   return {
     ...DEFAULTS,
     ...raw,
@@ -139,6 +146,7 @@ export function mergeConfig(raw: Record<string, unknown>): Config {
         Object.entries(raw.alertRules as Record<string, unknown>).map(([k, v]) => [k, { ...DEFAULT_RULE, ...(v as Record<string, unknown>) }])
       ) : {}),
     },
+    guardrails: { ...GUARDRAILS_DEFAULTS, ...rawGuardrails },
     dashboard: { ...DEFAULTS.dashboard, ...(raw.dashboard as Record<string, unknown> || {}) },
     retention: { ...DEFAULTS.retention, ...(raw.retention as Record<string, unknown> || {}) },
   } as Config;

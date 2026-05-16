@@ -1325,6 +1325,26 @@
     font-size: .72rem;
     color: var(--yellow);
   }
+
+  /* Trust scores */
+  .trust-grade { font-size: 2rem; font-weight: 800; line-height: 1; }
+  .grade-a { color: var(--green); }
+  .grade-b { color: #66bb6a; }
+  .grade-c { color: var(--yellow); }
+  .grade-f { color: var(--red); }
+  .trust-bar { height: 6px; background: var(--surface2); border-radius: 3px; margin: 8px 0; overflow: hidden; }
+  .trust-fill { height: 100%; border-radius: 3px; transition: width .3s; }
+  .trust-stats { display: flex; justify-content: space-between; font-size: .75rem; margin-top: 4px; }
+  .card-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+
+  /* Guardrails & compliance */
+  .setting-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: .8rem; }
+  .setting-row:last-child { border-bottom: none; }
+  .badge-success { background: var(--green); color: #000; }
+  .badge-info { background: var(--accent); color: #000; }
+  .badge-muted { background: var(--surface2); color: var(--muted); }
+  .empty-state { text-align: center; padding: 32px 16px; color: var(--muted); font-size: .85rem; }
+  .error { text-align: center; padding: 16px; color: var(--red); }
 </style>
 </head>
 <body>
@@ -1411,6 +1431,24 @@
       <div id="settingsContent"><div class="skeleton"></div></div>
     </div>
 
+    <!-- PAGE: TRUST -->
+    <div class="page" id="page-trust">
+      <h2 style="margin:0 0 12px">🏆 Provider Trust Scores</h2>
+      <div id="trustContent"><div class="skeleton"></div></div>
+    </div>
+
+    <!-- PAGE: GUARDRAILS -->
+    <div class="page" id="page-guardrails">
+      <h2 style="margin:0 0 12px">🚧 Guardrails</h2>
+      <div id="guardrailsContent"><div class="skeleton"></div></div>
+    </div>
+
+    <!-- PAGE: COMPLIANCE -->
+    <div class="page" id="page-compliance">
+      <h2 style="margin:0 0 12px">📋 Compliance & Audit</h2>
+      <div id="complianceContent"><div class="skeleton"></div></div>
+    </div>
+
   </div>
 
   <!-- Bottom Nav -->
@@ -1434,6 +1472,15 @@
     </button>
     <button class="bottom-nav-item" data-page="projects">
       <span class="bottom-nav-icon">📁</span>Projects
+    </button>
+    <button class="bottom-nav-item" data-page="trust">
+      <span class="bottom-nav-icon">🏆</span>Trust
+    </button>
+    <button class="bottom-nav-item" data-page="guardrails">
+      <span class="bottom-nav-icon">🚧</span>Guards
+    </button>
+    <button class="bottom-nav-item" data-page="compliance">
+      <span class="bottom-nav-icon">📋</span>Audit
     </button>
     <button class="bottom-nav-item" data-page="settings">
       <span class="bottom-nav-icon">⚙️</span>Settings
@@ -1990,6 +2037,9 @@ function showPage(name, sessionId) {
   else if (name === 'security') loadSecurity();
   else if (name === 'memory') loadMemory();
   else if (name === 'projects') loadProjects();
+  else if (name === 'trust') loadTrust();
+  else if (name === 'guardrails') loadGuardrails();
+  else if (name === 'compliance') loadCompliance();
   else if (name === 'settings') loadSettings();
 }
 
@@ -3066,6 +3116,169 @@ async function saveSettings() {
     if (label) label.style.display = 'none';
   } else {
     showToast('danger', 'Failed to save settings');
+  }
+}
+
+// ══════════════════════════════════════════════════
+// ── TRUST SCORES PAGE ──
+// ══════════════════════════════════════════════════
+
+async function loadTrust() {
+  const el = document.getElementById('trustContent');
+  try {
+    const scores = await api('/api/trust');
+    if (!scores.length) {
+      el.innerHTML = '<div class="empty-state">No trust data yet. Trust scores build as sessions complete.</div>';
+      return;
+    }
+    let html = '<div class="card-grid">';
+    for (const s of scores) {
+      const gradeClass = s.grade === 'A' ? 'grade-a' : s.grade === 'B' ? 'grade-b' : s.grade === 'F' ? 'grade-f' : s.grade === 'D' ? 'grade-f' : 'grade-c';
+      const cleanRate = s.totalSessions > 0 ? Math.round((s.cleanSessions / s.totalSessions) * 100) : 0;
+      html += `
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <h3 style="margin:0;">${s.provider}</h3>
+            <span class="trust-grade ${gradeClass}">${s.grade}</span>
+          </div>
+          <div class="trust-bar"><div class="trust-fill" style="width:${s.score}%;background:${s.score >= 80 ? 'var(--green)' : s.score >= 60 ? 'var(--yellow)' : 'var(--red)'}"></div></div>
+          <div class="trust-stats">
+            <span>Score: ${s.score}/100</span>
+            <span>Sessions: ${s.totalSessions}</span>
+          </div>
+          <div class="trust-stats">
+            <span>Clean: ${cleanRate}%</span>
+            <span>Incidents: ${s.incidents}</span>
+          </div>
+          <div class="trust-stats" style="color:var(--muted);font-size:11px;">
+            Last updated: ${fmtDate(s.lastUpdated)} ${fmtTime(s.lastUpdated)}
+          </div>
+        </div>`;
+    }
+    html += '</div>';
+    el.innerHTML = html;
+  } catch (err) {
+    el.innerHTML = '<div class="error">Failed to load trust scores</div>';
+  }
+}
+
+// ══════════════════════════════════════════════════
+// ── GUARDRAILS PAGE ──
+// ══════════════════════════════════════════════════
+
+async function loadGuardrails() {
+  const el = document.getElementById('guardrailsContent');
+  try {
+    const [violations, config] = await Promise.all([
+      api('/api/guardrails/violations?limit=50'),
+      api('/api/guardrails/config'),
+    ]);
+
+    let html = `
+      <div class="card" style="margin-bottom:12px;">
+        <h3 style="margin:0 0 8px;">Configuration</h3>
+        <div class="setting-row"><span>Enabled</span><span class="badge ${config.enabled !== false ? 'badge-success' : 'badge-muted'}">${config.enabled !== false ? 'Active' : 'Disabled'}</span></div>
+        <div class="setting-row"><span>Mode</span><span class="badge badge-info">${config.mode || 'alert'}</span></div>
+        <div class="setting-row"><span>Token Budget</span><span>${config.tokenBudget || 'Unlimited'}</span></div>
+        <div class="setting-row"><span>Scope Allow</span><span>${(config.scopeAllowPatterns || []).length || 'All files'}</span></div>
+        <div class="setting-row"><span>Scope Block</span><span>${(config.scopeBlockPatterns || []).length} patterns</span></div>
+        <div class="setting-row"><span>Blocked Commands</span><span>${(config.blockedCommands || []).length} patterns</span></div>
+        <div class="setting-row"><span>Network Allowlist</span><span>${(config.networkAllowlist || []).length || 'All domains'}</span></div>
+      </div>
+    `;
+
+    if (violations.length === 0) {
+      html += '<div class="empty-state">No guardrail violations recorded. 🎉</div>';
+    } else {
+      html += '<h3>Recent Violations</h3><div class="timeline">';
+      for (const v of violations) {
+        const sevClass = v.severity === 'danger' ? 'danger' : v.severity === 'warn' ? 'warn' : 'watch';
+        html += `
+          <div class="tl-event risk-${sevClass}">
+            <div class="tl-time">${fmtTime(v.timestamp)}</div>
+            <div class="tl-body">
+              <span class="badge badge-${sevClass}">${v.blocked ? '🚫 BLOCKED' : '⚠️ ' + v.severity}</span>
+              <span class="badge badge-muted">${v.rule}</span>
+              <div class="tl-summary">${v.message}</div>
+            </div>
+          </div>`;
+      }
+      html += '</div>';
+    }
+    el.innerHTML = html;
+  } catch (err) {
+    el.innerHTML = '<div class="error">Failed to load guardrails data</div>';
+  }
+}
+
+// ══════════════════════════════════════════════════
+// ── COMPLIANCE PAGE ──
+// ══════════════════════════════════════════════════
+
+async function loadCompliance() {
+  const el = document.getElementById('complianceContent');
+  try {
+    const chain = await api('/api/compliance/chain/verify');
+    const packs = await api('/api/rules/packs');
+
+    let html = `
+      <div class="card" style="margin-bottom:12px;">
+        <h3 style="margin:0 0 8px;">Audit Chain Integrity</h3>
+        <div class="setting-row">
+          <span>Status</span>
+          <span class="badge ${chain.valid ? 'badge-success' : 'badge-danger'}">${chain.valid ? '✓ Chain Valid' : '✗ TAMPERED'}</span>
+        </div>
+        <div class="setting-row"><span>Total Entries</span><span>${chain.totalEntries}</span></div>
+        ${chain.brokenAt ? `<div class="setting-row"><span>Broken At</span><span class="badge badge-danger">Entry #${chain.brokenAt}</span></div>` : ''}
+      </div>
+
+      <div class="card" style="margin-bottom:12px;">
+        <h3 style="margin:0 0 8px;">Generate Evidence Report</h3>
+        <div style="display:flex;gap:8px;margin-bottom:8px;">
+          <input type="date" id="reportStart" class="filter-input" style="flex:1;" value="${new Date(Date.now()-7*86400000).toISOString().split('T')[0]}">
+          <input type="date" id="reportEnd" class="filter-input" style="flex:1;" value="${new Date().toISOString().split('T')[0]}">
+        </div>
+        <button class="export-btn" onclick="generateReport()">📋 Generate Report</button>
+        <div id="reportResult" style="margin-top:8px;"></div>
+      </div>
+
+      <div class="card" style="margin-bottom:12px;">
+        <h3 style="margin:0 0 8px;">Detection Rule Packs</h3>
+        ${packs.map(p => `
+          <div class="setting-row">
+            <span><strong>${p.name}</strong> v${p.version}</span>
+            <span class="badge badge-info">${p.ruleCount} rules</span>
+          </div>
+          <div style="color:var(--muted);font-size:11px;margin-bottom:6px;">${p.description}</div>
+        `).join('')}
+      </div>
+    `;
+    el.innerHTML = html;
+  } catch (err) {
+    el.innerHTML = '<div class="error">Failed to load compliance data</div>';
+  }
+}
+
+async function generateReport() {
+  const start = document.getElementById('reportStart').value;
+  const end = document.getElementById('reportEnd').value;
+  const el = document.getElementById('reportResult');
+  if (!start || !end) { el.innerHTML = '<span style="color:var(--red)">Select date range</span>'; return; }
+  try {
+    const report = await api(`/api/compliance/report?start=${start}T00:00:00&end=${end}T23:59:59`);
+    const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    el.innerHTML = `
+      <div class="card" style="background:var(--surface2);">
+        <div class="setting-row"><span>Sessions</span><span>${report.summary.totalSessions}</span></div>
+        <div class="setting-row"><span>Events</span><span>${report.summary.totalEvents}</span></div>
+        <div class="setting-row"><span>Alerts</span><span>${report.summary.totalAlerts}</span></div>
+        <div class="setting-row"><span>Danger Events</span><span class="badge badge-danger">${report.summary.dangerEvents}</span></div>
+        <div class="setting-row"><span>Chain Integrity</span><span class="badge ${report.chainIntegrity.valid ? 'badge-success' : 'badge-danger'}">${report.chainIntegrity.valid ? 'Valid' : 'BROKEN'}</span></div>
+        <a href="${url}" download="evidence-report-${start}.json" class="export-btn" style="display:inline-block;margin-top:8px;text-decoration:none;">📥 Download Full Report</a>
+      </div>`;
+  } catch (err) {
+    el.innerHTML = '<span style="color:var(--red)">Failed to generate report</span>';
   }
 }
 
