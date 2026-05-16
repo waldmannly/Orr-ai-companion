@@ -234,6 +234,99 @@ function migrate() {
     CREATE INDEX IF NOT EXISTS idx_cmdq_status ON command_queue(status);
     CREATE INDEX IF NOT EXISTS idx_cmdq_blocked_at ON command_queue(blocked_at);
   `);
+
+  // Agent hierarchy / sub-agent authority
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_nodes (
+      id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      parent_id TEXT,
+      provider TEXT NOT NULL DEFAULT '',
+      allowed_scopes TEXT NOT NULL DEFAULT '[]',
+      denied_scopes TEXT NOT NULL DEFAULT '[]',
+      trust_level TEXT NOT NULL DEFAULT 'limited',
+      created_at TEXT NOT NULL,
+      last_seen_at TEXT NOT NULL,
+      event_count INTEGER NOT NULL DEFAULT 0,
+      danger_count INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (id, session_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_agents_session ON agent_nodes(session_id);
+    CREATE INDEX IF NOT EXISTS idx_agents_parent ON agent_nodes(parent_id);
+
+    CREATE TABLE IF NOT EXISTS delegation_records (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      parent_agent_id TEXT NOT NULL,
+      child_agent_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      delegated_scopes TEXT NOT NULL DEFAULT '[]',
+      timestamp TEXT NOT NULL,
+      reason TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS idx_deleg_session ON delegation_records(session_id);
+
+    CREATE TABLE IF NOT EXISTS authority_violations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      agent_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      timestamp TEXT NOT NULL,
+      violation_type TEXT NOT NULL,
+      message TEXT NOT NULL,
+      severity TEXT NOT NULL DEFAULT 'warn'
+    );
+    CREATE INDEX IF NOT EXISTS idx_authviol_session ON authority_violations(session_id);
+  `);
+
+  // Team / multi-user
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS team_users (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'viewer',
+      api_key_hash TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL,
+      last_seen_at TEXT,
+      active INTEGER NOT NULL DEFAULT 1
+    );
+
+    CREATE TABLE IF NOT EXISTS shared_rules (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      pattern TEXT NOT NULL,
+      is_regex INTEGER NOT NULL DEFAULT 0,
+      severity TEXT NOT NULL DEFAULT 'warn',
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1
+    );
+
+    CREATE TABLE IF NOT EXISTS team_activity (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      detail TEXT,
+      timestamp TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_team_activity_ts ON team_activity(timestamp);
+  `);
+
+  // Automated response actions
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS auto_actions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      timestamp TEXT NOT NULL,
+      action_type TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      trigger_event_id INTEGER,
+      reversed INTEGER NOT NULL DEFAULT 0,
+      reversed_at TEXT,
+      reversed_by TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_autoact_session ON auto_actions(session_id);
+    CREATE INDEX IF NOT EXISTS idx_autoact_type ON auto_actions(action_type);
+  `);
 }
 
 // ── Retention cleanup ──

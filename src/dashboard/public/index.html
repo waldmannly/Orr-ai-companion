@@ -1763,6 +1763,48 @@
       <div id="commandsContent"><div class="skeleton"></div></div>
     </div>
 
+    <!-- PAGE: EXPORT -->
+    <div class="page" id="page-export">
+      <h2 style="margin:0 0 12px">📊 Export & Reports</h2>
+      <div id="exportContent"><div class="skeleton"></div></div>
+    </div>
+
+    <!-- PAGE: AGENTS -->
+    <div class="page" id="page-agents">
+      <h2 style="margin:0 0 12px">🤖 Sub-Agent Authority</h2>
+      <div id="agentsContent"><div class="skeleton"></div></div>
+    </div>
+
+    <!-- PAGE: CORRELATION -->
+    <div class="page" id="page-correlation">
+      <h2 style="margin:0 0 12px">🔗 Multi-Agent Correlation</h2>
+      <div id="correlationContent"><div class="skeleton"></div></div>
+    </div>
+
+    <!-- PAGE: ANALYSIS -->
+    <div class="page" id="page-analysis">
+      <h2 style="margin:0 0 12px">🔬 Memory Analysis</h2>
+      <div id="analysisContent"><div class="skeleton"></div></div>
+    </div>
+
+    <!-- PAGE: PLUGINS -->
+    <div class="page" id="page-plugins">
+      <h2 style="margin:0 0 12px">🧩 Plugins</h2>
+      <div id="pluginsContent"><div class="skeleton"></div></div>
+    </div>
+
+    <!-- PAGE: TEAM -->
+    <div class="page" id="page-team">
+      <h2 style="margin:0 0 12px">👥 Team Dashboard</h2>
+      <div id="teamContent"><div class="skeleton"></div></div>
+    </div>
+
+    <!-- PAGE: RESPONSE -->
+    <div class="page" id="page-response">
+      <h2 style="margin:0 0 12px">⚡ Automated Response</h2>
+      <div id="responseContent"><div class="skeleton"></div></div>
+    </div>
+
   </div>
 
   <!-- Bottom Nav -->
@@ -1801,6 +1843,27 @@
     </button>
     <button class="bottom-nav-item" data-page="commands">
       <span class="bottom-nav-icon">🛑</span>Queue
+    </button>
+    <button class="bottom-nav-item" data-page="export">
+      <span class="bottom-nav-icon">📊</span>Export
+    </button>
+    <button class="bottom-nav-item" data-page="agents">
+      <span class="bottom-nav-icon">🤖</span>Agents
+    </button>
+    <button class="bottom-nav-item" data-page="correlation">
+      <span class="bottom-nav-icon">🔗</span>Correlate
+    </button>
+    <button class="bottom-nav-item" data-page="analysis">
+      <span class="bottom-nav-icon">🔬</span>Analysis
+    </button>
+    <button class="bottom-nav-item" data-page="plugins">
+      <span class="bottom-nav-icon">🧩</span>Plugins
+    </button>
+    <button class="bottom-nav-item" data-page="team">
+      <span class="bottom-nav-icon">👥</span>Team
+    </button>
+    <button class="bottom-nav-item" data-page="response">
+      <span class="bottom-nav-icon">⚡</span>Response
     </button>
     <button class="bottom-nav-item" data-page="settings">
       <span class="bottom-nav-icon">⚙️</span>Settings
@@ -2535,6 +2598,13 @@ function showPage(name, sessionId) {
   else if (name === 'compliance') loadCompliance();
   else if (name === 'prompts') loadPrompts();
   else if (name === 'commands') loadCommands();
+  else if (name === 'export') loadExport();
+  else if (name === 'agents') loadAgents();
+  else if (name === 'correlation') loadCorrelation();
+  else if (name === 'analysis') loadAnalysis();
+  else if (name === 'plugins') loadPlugins();
+  else if (name === 'team') loadTeam();
+  else if (name === 'response') loadResponse();
   else if (name === 'settings') loadSettings();
 }
 
@@ -4224,6 +4294,356 @@ async function denyAllCommands() {
 setInterval(async () => {
   if (state.currentPage === 'home') loadHome();
 }, 15000);
+
+// ── Export & Reports ──
+async function loadExport() {
+  const el = document.getElementById('exportContent');
+  el.innerHTML = '<div class="skeleton"></div>';
+  try {
+    const [report, summary] = await Promise.all([
+      fetch('/api/export/incident-report').then(r => r.json()),
+      fetch('/api/export/weekly-summary').then(r => r.json()),
+    ]);
+    let h = `
+      <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+        <a href="/api/export/events?format=csv" class="btn" download>⬇ Events CSV</a>
+        <a href="/api/export/events?format=json" class="btn" download>⬇ Events JSON</a>
+        <a href="/api/export/alerts" class="btn" download>⬇ Alerts CSV</a>
+      </div>`;
+    h += `<div class="card" style="margin-bottom:16px;">
+      <div class="card-title">📋 Incident Report</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:.85rem;">
+        <span>Severity:</span><strong style="color:var(--${report.severity === 'critical' ? 'danger' : report.severity === 'high' ? 'warn' : 'accent'})">${report.severity || 'none'}</strong>
+        <span>Danger Events:</span><span>${report.danger_events?.length || 0}</span>
+        <span>Guardrail Violations:</span><span>${report.guardrail_violations?.length || 0}</span>
+      </div>
+      ${report.recommendations?.length ? '<div style="margin-top:8px;font-size:.82rem;color:var(--muted)"><strong>Recommendations:</strong><ul style="margin:4px 0;padding-left:16px;">' + report.recommendations.map(r => '<li>' + esc(r) + '</li>').join('') + '</ul></div>' : ''}
+    </div>`;
+    h += `<div class="card">
+      <div class="card-title">📈 Weekly Summary</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:.85rem;">
+        <span>Total Events:</span><span>${summary.stats?.total_events || 0}</span>
+        <span>Danger:</span><span style="color:var(--danger)">${summary.stats?.danger_events || 0}</span>
+        <span>Sessions:</span><span>${summary.stats?.sessions || 0}</span>
+      </div>
+      ${summary.highlights?.length ? '<div style="margin-top:8px;font-size:.82rem;color:var(--muted)">' + summary.highlights.map(h => '<div>• ' + esc(h) + '</div>').join('') + '</div>' : ''}
+    </div>`;
+    el.innerHTML = h;
+  } catch { el.innerHTML = '<div class="empty-state">Failed to load export data</div>'; }
+}
+
+// ── Sub-Agent Authority ──
+async function loadAgents() {
+  const el = document.getElementById('agentsContent');
+  el.innerHTML = '<div class="skeleton"></div>';
+  try {
+    const sid = state.selectedSessionId;
+    if (!sid) {
+      el.innerHTML = '<div class="empty-state">Select a session first to view agent hierarchy</div>';
+      return;
+    }
+    const [nodes, tree, delegations, violations] = await Promise.all([
+      fetch('/api/sessions/' + sid + '/agents/nodes').then(r => r.json()),
+      fetch('/api/sessions/' + sid + '/agents/tree').then(r => r.json()),
+      fetch('/api/sessions/' + sid + '/delegations').then(r => r.json()),
+      fetch('/api/authority/violations?session_id=' + sid).then(r => r.json()),
+    ]);
+    let h = `<div class="card" style="margin-bottom:12px;"><div class="card-title">Agent Nodes (${nodes.length})</div>`;
+    if (!nodes.length) h += '<div class="empty-state">No agents detected in this session</div>';
+    else {
+      h += '<div style="font-size:.85rem;">';
+      for (const n of nodes) {
+        const trustColor = n.trust_level === 'full' ? 'var(--accent)' : n.trust_level === 'sandboxed' ? 'var(--warn)' : 'var(--muted)';
+        h += `<div style="padding:6px 0;border-bottom:1px solid var(--border);">
+          <strong>${esc(n.agent_id)}</strong> — <span style="color:${trustColor}">${n.trust_level}</span>
+          ${n.danger_count > 0 ? `<span class="badge" style="background:var(--danger);color:#fff;margin-left:6px;">${n.danger_count} danger</span>` : ''}
+        </div>`;
+      }
+      h += '</div>';
+    }
+    h += '</div>';
+    if (tree.length) {
+      h += `<div class="card" style="margin-bottom:12px;"><div class="card-title">🌳 Delegation Tree</div><div style="font-size:.82rem;">`;
+      function renderTree(nodes, depth) {
+        let s = '';
+        for (const n of nodes) {
+          s += `<div style="padding-left:${depth*16}px;padding:3px 0 3px ${depth*16}px;">${'└─'.repeat(depth?1:0)} ${esc(n.agent_id)} <span style="color:var(--muted)">(${n.trust_level})</span></div>`;
+          if (n.children?.length) s += renderTree(n.children, depth + 1);
+        }
+        return s;
+      }
+      h += renderTree(tree, 0) + '</div></div>';
+    }
+    if (violations.length) {
+      h += `<div class="card"><div class="card-title" style="color:var(--danger)">⚠️ Authority Violations (${violations.length})</div><div style="font-size:.82rem;">`;
+      for (const v of violations.slice(0, 20)) {
+        h += `<div style="padding:4px 0;border-bottom:1px solid var(--border);">
+          <strong>${esc(v.agent_id)}</strong> tried <code>${esc(v.event_type)}</code> — denied scope: <code>${esc(v.denied_scope)}</code>
+          <span style="color:var(--muted);margin-left:6px;">${fmtTime(v.timestamp)}</span>
+        </div>`;
+      }
+      h += '</div></div>';
+    }
+    el.innerHTML = h;
+  } catch { el.innerHTML = '<div class="empty-state">Failed to load agent data</div>'; }
+}
+
+// ── Multi-Agent Correlation ──
+async function loadCorrelation() {
+  const el = document.getElementById('correlationContent');
+  el.innerHTML = '<div class="skeleton"></div>';
+  try {
+    const [projects, stats] = await Promise.all([
+      fetch('/api/correlation/projects').then(r => r.json()),
+      fetch('/api/correlation/stats').then(r => r.json()),
+    ]);
+    let h = `<div class="card" style="margin-bottom:12px;">
+      <div class="card-title">📊 Cross-Session Stats</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:.85rem;">
+        <span>Total Sessions:</span><span>${stats.total_sessions || 0}</span>
+        <span>Multi-Agent Projects:</span><span>${stats.multi_agent_projects || 0}</span>
+        <span>File Conflicts:</span><span style="color:var(--warn)">${stats.total_conflicts || 0}</span>
+      </div>
+    </div>`;
+    h += `<div class="card"><div class="card-title">🔗 Multi-Agent Projects (${projects.length})</div>`;
+    if (!projects.length) h += '<div class="empty-state">No multi-agent projects found</div>';
+    else {
+      for (const p of projects) {
+        h += `<div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:.85rem;">
+          <strong>${esc(p.project_name)}</strong> — ${p.session_count} sessions
+          ${p.conflicts?.length ? `<span style="color:var(--warn);margin-left:8px;">⚠ ${p.conflicts.length} file conflicts</span>` : ''}
+          ${p.overlap_periods?.length ? `<span style="color:var(--muted);margin-left:8px;">🔄 ${p.overlap_periods.length} overlap periods</span>` : ''}
+        </div>`;
+      }
+    }
+    h += '</div>';
+    el.innerHTML = h;
+  } catch { el.innerHTML = '<div class="empty-state">Failed to load correlation data</div>'; }
+}
+
+// ── Memory Analysis ──
+async function loadAnalysis() {
+  const el = document.getElementById('analysisContent');
+  el.innerHTML = '<div class="skeleton"></div>';
+  try {
+    const [analysis, diffs] = await Promise.all([
+      fetch('/api/analysis/memory').then(r => r.json()),
+      fetch('/api/analysis/memory/diffs').then(r => r.json()),
+    ]);
+    let h = `<div class="card" style="margin-bottom:12px;">
+      <div class="card-title">🔬 Memory Analysis Overview</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:.85rem;">
+        <span>Total Ops Analyzed:</span><span>${analysis.total_ops || 0}</span>
+        <span>Suspicious Writes:</span><span style="color:var(--warn)">${analysis.suspicious_count || 0}</span>
+        <span>Injection Detections:</span><span style="color:var(--danger)">${analysis.injection_count || 0}</span>
+      </div>
+    </div>`;
+    if (analysis.flagged_ops?.length) {
+      h += `<div class="card" style="margin-bottom:12px;"><div class="card-title" style="color:var(--danger)">⚠️ Flagged Operations</div><div style="font-size:.82rem;">`;
+      for (const op of analysis.flagged_ops.slice(0, 15)) {
+        const lvlColor = op.injection_level === 'confirmed_injection' ? 'var(--danger)' : op.injection_level === 'likely_injection' ? 'var(--warn)' : 'var(--muted)';
+        h += `<div style="padding:4px 0;border-bottom:1px solid var(--border);">
+          <span style="color:${lvlColor};font-weight:600">[${op.injection_level}]</span>
+          Score: ${op.score}/100 — ${esc(op.memory_path || '')}
+          <div style="color:var(--muted);font-size:.78rem;margin-top:2px;">${esc((op.content_preview || '').substring(0, 120))}</div>
+        </div>`;
+      }
+      h += '</div></div>';
+    }
+    if (diffs.length) {
+      h += `<div class="card"><div class="card-title">📝 Memory Diffs (${diffs.length})</div><div style="font-size:.82rem;">`;
+      for (const d of diffs.slice(0, 15)) {
+        h += `<div style="padding:4px 0;border-bottom:1px solid var(--border);">
+          <strong>${esc(d.memory_path)}</strong> — risk ${d.risk_before || '?'} → ${d.risk_after || '?'}
+          <span style="color:var(--muted);margin-left:6px;">${fmtTime(d.timestamp)}</span>
+        </div>`;
+      }
+      h += '</div></div>';
+    }
+    el.innerHTML = h;
+  } catch { el.innerHTML = '<div class="empty-state">Failed to load analysis data</div>'; }
+}
+
+// ── Plugins ──
+async function loadPlugins() {
+  const el = document.getElementById('pluginsContent');
+  el.innerHTML = '<div class="skeleton"></div>';
+  try {
+    const [plugins, rules] = await Promise.all([
+      fetch('/api/plugins').then(r => r.json()),
+      fetch('/api/plugins/rules').then(r => r.json()),
+    ]);
+    let h = `<div class="card" style="margin-bottom:12px;">
+      <div class="card-title">🧩 Loaded Plugins (${plugins.length})</div>`;
+    if (!plugins.length) h += '<div class="empty-state">No plugins loaded. Place .plugin.json files in your plugins directory.</div>';
+    else {
+      for (const p of plugins) {
+        h += `<div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:.85rem;">
+          <strong>${esc(p.name)}</strong> <span style="color:var(--muted)">v${esc(p.version)}</span>
+          ${p.description ? `<div style="color:var(--muted);font-size:.78rem;">${esc(p.description)}</div>` : ''}
+          <div style="font-size:.78rem;margin-top:2px;">${p.ruleCount} rules, ${p.widgetCount} widgets</div>
+          <button class="btn btn-sm" style="margin-top:4px;" onclick="unloadPluginUI('${esc(p.id)}')">Unload</button>
+        </div>`;
+      }
+    }
+    h += '</div>';
+    if (rules.length) {
+      h += `<div class="card"><div class="card-title">📋 All Plugin Rules (${rules.length})</div><div style="font-size:.82rem;">`;
+      for (const r of rules) {
+        h += `<div style="padding:3px 0;"><span class="badge badge-${r.severity || 'watch'}">${r.severity || 'watch'}</span> <strong>${esc(r.pluginId)}</strong>: ${esc(r.message || r.ruleId)}</div>`;
+      }
+      h += '</div></div>';
+    }
+    el.innerHTML = h;
+  } catch { el.innerHTML = '<div class="empty-state">Failed to load plugins</div>'; }
+}
+
+async function unloadPluginUI(id) {
+  try {
+    await fetch('/api/plugins/' + id, { method: 'DELETE' });
+    showToast('info', 'Plugin unloaded');
+    loadPlugins();
+  } catch { showToast('danger', 'Failed to unload plugin'); }
+}
+
+// ── Team Dashboard ──
+async function loadTeam() {
+  const el = document.getElementById('teamContent');
+  el.innerHTML = '<div class="skeleton"></div>';
+  try {
+    const [users, rules, stats] = await Promise.all([
+      fetch('/api/team/users').then(r => r.json()),
+      fetch('/api/team/rules').then(r => r.json()),
+      fetch('/api/team/stats').then(r => r.json()),
+    ]);
+    let h = `<div class="card" style="margin-bottom:12px;">
+      <div class="card-title">📊 Team Stats</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:.85rem;">
+        <span>Users:</span><span>${stats.total_users || 0}</span>
+        <span>Active:</span><span>${stats.active_users || 0}</span>
+        <span>Shared Rules:</span><span>${stats.shared_rules || 0}</span>
+        <span>Activity (7d):</span><span>${stats.recent_activity || 0}</span>
+      </div>
+    </div>`;
+    h += `<div class="card" style="margin-bottom:12px;">
+      <div class="card-title">👥 Users (${users.length})</div>
+      <div style="display:flex;gap:8px;margin-bottom:8px;">
+        <input id="newUserName" placeholder="Name" style="flex:1;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:.85rem;">
+        <select id="newUserRole" style="padding:6px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:.85rem;">
+          <option value="viewer">Viewer</option><option value="operator">Operator</option><option value="admin">Admin</option>
+        </select>
+        <button class="btn" onclick="createTeamUser()">Add</button>
+      </div>`;
+    if (!users.length) h += '<div class="empty-state">No users — single-user mode (no auth required)</div>';
+    else {
+      for (const u of users) {
+        h += `<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:.85rem;display:flex;justify-content:space-between;align-items:center;">
+          <div><strong>${esc(u.name)}</strong> <span class="badge">${u.role}</span> ${!u.is_active ? '<span style="color:var(--danger)">(inactive)</span>' : ''}</div>
+          ${u.is_active ? `<button class="btn btn-sm" onclick="deactivateUserUI('${esc(u.id)}')">Deactivate</button>` : ''}
+        </div>`;
+      }
+    }
+    h += '</div>';
+    h += `<div class="card">
+      <div class="card-title">📋 Shared Rules (${rules.length})</div>`;
+    for (const r of rules) {
+      h += `<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:.85rem;">
+        <strong>${esc(r.name)}</strong> <span class="badge badge-${r.severity || 'watch'}">${r.severity || 'watch'}</span>
+        ${!r.enabled ? '<span style="color:var(--muted)">(disabled)</span>' : ''}
+        <div style="color:var(--muted);font-size:.78rem;">Pattern: <code>${esc(r.pattern)}</code></div>
+      </div>`;
+    }
+    h += '</div>';
+    el.innerHTML = h;
+  } catch { el.innerHTML = '<div class="empty-state">Failed to load team data</div>'; }
+}
+
+async function createTeamUser() {
+  const name = document.getElementById('newUserName').value.trim();
+  const role = document.getElementById('newUserRole').value;
+  if (!name) return showToast('warn', 'Enter a name');
+  try {
+    const res = await fetch('/api/team/users', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ name, role }) });
+    const data = await res.json();
+    if (data.apiKey) {
+      showToast('info', 'User created! API Key: ' + data.apiKey);
+    }
+    loadTeam();
+  } catch { showToast('danger', 'Failed to create user'); }
+}
+
+async function deactivateUserUI(id) {
+  try {
+    await fetch('/api/team/users/' + id, { method: 'DELETE' });
+    showToast('info', 'User deactivated');
+    loadTeam();
+  } catch { showToast('danger', 'Failed to deactivate user'); }
+}
+
+// ── Automated Response ──
+async function loadResponse() {
+  const el = document.getElementById('responseContent');
+  el.innerHTML = '<div class="skeleton"></div>';
+  try {
+    const [config, actions, stats] = await Promise.all([
+      fetch('/api/response/config').then(r => r.json()),
+      fetch('/api/response/actions').then(r => r.json()),
+      fetch('/api/response/stats').then(r => r.json()),
+    ]);
+    let h = `<div class="card" style="margin-bottom:12px;">
+      <div class="card-title">⚙️ Auto-Response Config</div>
+      <div style="font-size:.85rem;display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <label><input type="checkbox" id="arEnabled" ${config.enabled ? 'checked' : ''} onchange="updateAutoConfig()"> Enabled</label>
+        <label><input type="checkbox" id="arKill" ${config.killOnDanger ? 'checked' : ''} onchange="updateAutoConfig()"> Kill on Danger</label>
+        <label>Block writes below trust: <input type="number" id="arBlockTrust" value="${config.blockWritesBelowTrust || 0}" min="0" max="100" style="width:50px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);" onchange="updateAutoConfig()"></label>
+        <label>Pause after dangers: <input type="number" id="arPauseDangers" value="${config.pauseAfterDangers || 0}" min="0" style="width:50px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);" onchange="updateAutoConfig()"></label>
+      </div>
+    </div>`;
+    h += `<div class="card" style="margin-bottom:12px;">
+      <div class="card-title">📊 Response Stats</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:.85rem;">
+        <span>Total Actions:</span><span>${stats.total_actions || 0}</span>
+        <span>Kills:</span><span style="color:var(--danger)">${stats.kills || 0}</span>
+        <span>Pauses:</span><span>${stats.pauses || 0}</span>
+        <span>Reversed:</span><span>${stats.reversed || 0}</span>
+      </div>
+    </div>`;
+    h += `<div class="card"><div class="card-title">📋 Recent Actions (${actions.length})</div>`;
+    if (!actions.length) h += '<div class="empty-state">No automated actions taken yet</div>';
+    else {
+      for (const a of actions.slice(0, 20)) {
+        h += `<div style="padding:4px 0;border-bottom:1px solid var(--border);font-size:.82rem;">
+          <span class="badge badge-${a.action_type === 'kill' ? 'danger' : 'warn'}">${a.action_type}</span>
+          ${esc(a.reason || '')} <span style="color:var(--muted)">${fmtTime(a.timestamp)}</span>
+          ${!a.reversed ? `<button class="btn btn-sm" onclick="reverseActionUI(${a.id})" style="margin-left:6px;">Reverse</button>` : '<span style="color:var(--muted)">(reversed)</span>'}
+        </div>`;
+      }
+    }
+    h += '</div>';
+    el.innerHTML = h;
+  } catch { el.innerHTML = '<div class="empty-state">Failed to load response data</div>'; }
+}
+
+async function updateAutoConfig() {
+  const config = {
+    enabled: document.getElementById('arEnabled').checked,
+    killOnDanger: document.getElementById('arKill').checked,
+    blockWritesBelowTrust: parseInt(document.getElementById('arBlockTrust').value) || 0,
+    pauseAfterDangers: parseInt(document.getElementById('arPauseDangers').value) || 0,
+  };
+  try {
+    await fetch('/api/response/config', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(config) });
+    showToast('info', 'Config updated');
+  } catch { showToast('danger', 'Failed to update config'); }
+}
+
+async function reverseActionUI(id) {
+  try {
+    await fetch('/api/response/actions/' + id + '/reverse', { method: 'POST' });
+    showToast('info', 'Action reversed');
+    loadResponse();
+  } catch { showToast('danger', 'Failed to reverse action'); }
+}
 
 // ── Initial load ──
 loadHome();

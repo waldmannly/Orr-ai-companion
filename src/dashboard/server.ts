@@ -32,6 +32,32 @@ import {
   getCommandById, approveCommand, denyCommand, modifyAndRelease,
   denyAllBlocked, getCommandQueueStats, getOrphanedBlocked, expireStaleCommands,
 } from '../commands';
+import {
+  exportEventsCSV, exportEventsJSON, exportAlertsCSV,
+  generateIncidentReport, generateWeeklySummary,
+} from '../export';
+import {
+  getSessionAgentNodes, buildDelegationTree, getSessionDelegations,
+  getAuthorityViolations, setAgentScopes, checkAgentAuthority,
+} from '../agents';
+import {
+  getMultiAgentProjects, getInterleavedTimeline, getCrossSessionStats,
+} from '../correlation';
+import {
+  scoreInjection, getMemoryDiffs, generateMemoryAnalysis,
+} from '../analysis';
+import {
+  getLoadedPlugins, getPlugin, loadPlugin, unloadPlugin,
+  getAllPluginRules, executeWidgetQuery, loadPluginsFromDirectory,
+} from '../plugins';
+import {
+  createUser, listUsers, deactivateUser, getSharedRules,
+  createSharedRule, toggleSharedRule, deleteSharedRule, getTeamStats,
+} from '../team';
+import {
+  getAutoResponseConfig, updateAutoResponseConfig,
+  getAutoActions, getAutoResponseStats, pauseSession, resumeSession, reverseAction,
+} from '../response';
 
 // SSE — broadcast events to connected dashboard clients
 const sseClients = new Set<express.Response>();
@@ -696,6 +722,240 @@ export function createDashboardServer(config: Config): express.Express {
     const ctx = generateCrashRecovery(req.params.id, recentCount);
     if (!ctx) return res.status(404).json({ error: 'Session not found or no prompts recorded' });
     res.json(ctx);
+  });
+
+  // ── Export & Reporting ──
+
+  app.get('/api/export/events', (req, res) => {
+    const start = (req.query.start as string) || new Date(Date.now() - 7 * 86400_000).toISOString();
+    const end = (req.query.end as string) || new Date().toISOString();
+    const format = (req.query.format as string) || 'json';
+    const sessionId = req.query.session_id as string | undefined;
+    if (format === 'csv') {
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', 'attachment; filename="events-export.csv"');
+      res.send(exportEventsCSV(start, end, sessionId));
+    } else {
+      res.setHeader('Content-Disposition', 'attachment; filename="events-export.json"');
+      res.json(exportEventsJSON(start, end, sessionId));
+    }
+  });
+
+  app.get('/api/export/alerts', (req, res) => {
+    const start = (req.query.start as string) || new Date(Date.now() - 7 * 86400_000).toISOString();
+    const end = (req.query.end as string) || new Date().toISOString();
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="alerts-export.csv"');
+    res.send(exportAlertsCSV(start, end));
+  });
+
+  app.get('/api/export/incident-report', (req, res) => {
+    const start = (req.query.start as string) || new Date(Date.now() - 7 * 86400_000).toISOString();
+    const end = (req.query.end as string) || new Date().toISOString();
+    res.json(generateIncidentReport(start, end));
+  });
+
+  app.get('/api/export/weekly-summary', (req, res) => {
+    const weekStart = req.query.start as string | undefined;
+    res.json(generateWeeklySummary(weekStart));
+  });
+
+  // ── Sub-Agent Authority ──
+
+  app.get('/api/sessions/:id/agents/tree', (req, res) => {
+    res.json(buildDelegationTree(req.params.id));
+  });
+
+  app.get('/api/sessions/:id/agents/nodes', (req, res) => {
+    res.json(getSessionAgentNodes(req.params.id));
+  });
+
+  app.get('/api/sessions/:id/delegations', (req, res) => {
+    res.json(getSessionDelegations(req.params.id));
+  });
+
+  app.get('/api/authority/violations', (req, res) => {
+    const sessionId = req.query.session_id as string | undefined;
+    const limit = Math.min(Number(req.query.limit) || 50, 500);
+    res.json(getAuthorityViolations(sessionId, limit));
+  });
+
+  app.put('/api/agents/:agentId/scopes', (req, res) => {
+    const { session_id, allowed, denied } = req.body || {};
+    if (!session_id) return res.status(400).json({ error: 'session_id required' });
+    setAgentScopes(req.params.agentId, session_id, allowed || [], denied || []);
+    res.json({ ok: true });
+  });
+
+  // ── Multi-Agent Correlation ──
+
+  app.get('/api/correlation/projects', (_req, res) => {
+    res.json(getMultiAgentProjects());
+  });
+
+  app.get('/api/correlation/stats', (_req, res) => {
+    res.json(getCrossSessionStats());
+  });
+
+  app.get('/api/correlation/timeline', (req, res) => {
+    const project_name = req.query.project as string | undefined;
+    const session_ids = req.query.sessions ? (req.query.sessions as string).split(',') : undefined;
+    const limit = Math.min(Number(req.query.limit) || 200, 1000);
+    const offset = Number(req.query.offset) || 0;
+    res.json(getInterleavedTimeline({ project_name, session_ids, limit, offset }));
+  });
+
+  // ── Memory Content Analysis ──
+
+  app.get('/api/analysis/memory', (_req, res) => {
+    res.json(generateMemoryAnalysis());
+  });
+
+  app.get('/api/analysis/memory/diffs', (req, res) => {
+    const memoryPath = req.query.path as string | undefined;
+    res.json(getMemoryDiffs(memoryPath));
+  });
+
+  app.post('/api/analysis/injection-score', (req, res) => {
+    const { content } = req.body || {};
+    if (!content || typeof content !== 'string') return res.status(400).json({ error: 'content required' });
+    res.json(scoreInjection(content));
+  });
+
+  // ── Plugin System ──
+
+  app.get('/api/plugins', (_req, res) => {
+    res.json(getLoadedPlugins().map(p => ({
+      id: p.manifest.id,
+      name: p.manifest.name,
+      version: p.manifest.version,
+      description: p.manifest.description,
+      author: p.manifest.author,
+      ruleCount: p.compiledRules.length,
+      widgetCount: p.manifest.widgets?.length || 0,
+      loadedAt: p.loadedAt,
+    })));
+  });
+
+  app.get('/api/plugins/rules', (_req, res) => {
+    res.json(getAllPluginRules());
+  });
+
+  app.get('/api/plugins/:id', (req, res) => {
+    const plugin = getPlugin(req.params.id);
+    if (!plugin) return res.status(404).json({ error: 'Plugin not found' });
+    res.json(plugin.manifest);
+  });
+
+  app.post('/api/plugins/load', (req, res) => {
+    const { path: filePath } = req.body || {};
+    if (!filePath) return res.status(400).json({ error: 'path required' });
+    try {
+      const loaded = loadPlugin(filePath);
+      res.json({ ok: true, id: loaded.manifest.id, rules: loaded.compiledRules.length });
+    } catch (err) {
+      res.status(400).json({ error: String(err) });
+    }
+  });
+
+  app.delete('/api/plugins/:id', (req, res) => {
+    const removed = unloadPlugin(req.params.id);
+    res.json({ ok: removed });
+  });
+
+  app.get('/api/plugins/:pluginId/widgets/:widgetId', (req, res) => {
+    try {
+      const data = executeWidgetQuery(req.params.pluginId, req.params.widgetId, getDb());
+      res.json(data);
+    } catch (err) {
+      res.status(400).json({ error: String(err) });
+    }
+  });
+
+  // ── Team Dashboard ──
+
+  app.get('/api/team/users', (_req, res) => {
+    const users = listUsers().map(u => ({ ...u, api_key_hash: undefined }));
+    res.json(users);
+  });
+
+  app.post('/api/team/users', (req, res) => {
+    const { name, role } = req.body || {};
+    if (!name) return res.status(400).json({ error: 'name required' });
+    const { user, apiKey } = createUser(name, role || 'viewer');
+    res.json({ user: { ...user, api_key_hash: undefined }, apiKey });
+  });
+
+  app.delete('/api/team/users/:id', (req, res) => {
+    const ok = deactivateUser(req.params.id);
+    res.json({ ok });
+  });
+
+  app.get('/api/team/rules', (_req, res) => {
+    res.json(getSharedRules());
+  });
+
+  app.post('/api/team/rules', (req, res) => {
+    const { name, description, pattern, is_regex, severity, created_by } = req.body || {};
+    if (!name || !pattern) return res.status(400).json({ error: 'name and pattern required' });
+    const rule = createSharedRule({ name, description, pattern, is_regex, severity, created_by: created_by || 'anonymous' });
+    res.json(rule);
+  });
+
+  app.put('/api/team/rules/:id/toggle', (req, res) => {
+    const { enabled } = req.body || {};
+    const ok = toggleSharedRule(Number(req.params.id), enabled !== false);
+    res.json({ ok });
+  });
+
+  app.delete('/api/team/rules/:id', (req, res) => {
+    const ok = deleteSharedRule(Number(req.params.id));
+    res.json({ ok });
+  });
+
+  app.get('/api/team/stats', (_req, res) => {
+    res.json(getTeamStats());
+  });
+
+  // ── Automated Response ──
+
+  app.get('/api/response/config', (_req, res) => {
+    res.json(getAutoResponseConfig());
+  });
+
+  app.put('/api/response/config', (req, res) => {
+    const updated = updateAutoResponseConfig(req.body || {});
+    res.json(updated);
+  });
+
+  app.get('/api/response/actions', (req, res) => {
+    const sessionId = req.query.session_id as string | undefined;
+    const limit = Math.min(Number(req.query.limit) || 50, 500);
+    res.json(getAutoActions(sessionId, limit));
+  });
+
+  app.get('/api/response/stats', (_req, res) => {
+    res.json(getAutoResponseStats());
+  });
+
+  app.post('/api/response/pause/:sessionId', (req, res) => {
+    const { reason } = req.body || {};
+    const action = pauseSession(req.params.sessionId, reason || 'Manual pause');
+    broadcastSSE('session-paused', action);
+    res.json(action);
+  });
+
+  app.post('/api/response/resume/:sessionId', (req, res) => {
+    const action = resumeSession(req.params.sessionId, 'user');
+    if (!action) return res.status(404).json({ error: 'Session not paused' });
+    broadcastSSE('session-resumed', action);
+    res.json(action);
+  });
+
+  app.post('/api/response/actions/:id/reverse', (req, res) => {
+    const action = reverseAction(Number(req.params.id), 'user');
+    if (!action) return res.status(404).json({ error: 'Action not found or already reversed' });
+    res.json(action);
   });
 
   // Fallback — serve index.html for SPA routes

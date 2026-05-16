@@ -225,6 +225,51 @@ export function classifyRiskWithReasons(event: TrackerEvent, config: Config): Ri
     if (/kill\s|pkill\s|taskkill\s|systemctl\s|service\s|net\s+(start|stop)\b/.test(event.command)) {
       signals.push({ rule: 'process_management', level: 'warn', reason: 'AI agent is managing system processes or services', danger: 'Stopping or killing processes could cause data loss or service disruption' });
     }
+
+    // Clipboard operations
+    if (/pbcopy|pbpaste|xclip|xsel|clip\.exe|Set-Clipboard|Get-Clipboard|wl-copy|wl-paste/i.test(event.command)) {
+      signals.push({ rule: 'clipboard_access', level: 'warn', reason: 'AI agent is accessing the system clipboard', danger: 'Clipboard may contain passwords, tokens, or sensitive data — reading/writing it is a privacy risk' });
+    }
+
+    // Context window / token manipulation
+    if (/context.?window|max.?tokens|token.?limit|--max-tokens|temperature\s*[:=]\s*[0-9]/i.test(event.command)) {
+      signals.push({ rule: 'context_window_manipulation', level: 'watch', reason: 'AI agent is adjusting context window or token parameters', danger: 'Changing token limits or temperature affects AI reasoning quality and may hide important context' });
+    }
+  }
+
+  // URL resolution — detect external network access patterns
+  if (event.event_type === 'web_fetch' || (event.command && /https?:\/\//.test(event.command))) {
+    const urlMatch = (event.command || event.summary || '').match(/https?:\/\/[^\s"')]+/i);
+    if (urlMatch) {
+      const url = urlMatch[0];
+      try {
+        const host = new URL(url).hostname;
+        // Flag suspicious redirect/shortener domains
+        if (/bit\.ly|tinyurl|t\.co|goo\.gl|is\.gd|rb\.gy|shorturl|redirect/i.test(host)) {
+          signals.push({ rule: 'url_shortener', level: 'warn', reason: `URL shortener detected: ${host}`, danger: 'Shortened URLs hide the real destination — could lead to malicious sites or data exfiltration endpoints' });
+        }
+        // Flag raw IP addresses
+        if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) {
+          signals.push({ rule: 'raw_ip_access', level: 'warn', reason: `Direct IP access: ${host}`, danger: 'Accessing raw IP addresses bypasses DNS logging and may indicate covert communication' });
+        }
+        // Flag non-standard ports
+        const portMatch = url.match(/:(\d+)/);
+        if (portMatch && !['80', '443', '8080', '8443', '3000', '5000'].includes(portMatch[1])) {
+          signals.push({ rule: 'nonstandard_port', level: 'watch', reason: `Non-standard port ${portMatch[1]} in URL`, danger: 'Non-standard ports may indicate backdoor services or custom exfiltration endpoints' });
+        }
+      } catch {}
+    }
+  }
+
+  // Agent confidence / reasoning (detected from summary or raw_log)
+  if (event.raw_log) {
+    const raw = event.raw_log.toLowerCase();
+    if (/confidence\s*[:=]\s*(low|0\.[0-3])/i.test(raw)) {
+      signals.push({ rule: 'low_confidence', level: 'watch', reason: 'AI agent reported low confidence in its action', danger: 'Low-confidence actions are more likely to contain errors or hallucinations' });
+    }
+    if (/i('m| am)\s+(not sure|uncertain|guessing)/i.test(raw)) {
+      signals.push({ rule: 'uncertain_reasoning', level: 'watch', reason: 'AI agent expressed uncertainty about its action', danger: 'Uncertain reasoning increases risk of incorrect file modifications or commands' });
+    }
   }
 
   // Check memory content for injection patterns

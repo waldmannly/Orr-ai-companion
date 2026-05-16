@@ -26,18 +26,18 @@
 
 | # | Feature | Status | Effort |
 |---|---------|--------|--------|
-| 1 | **Export & Reporting** — JSON/CSV export, PDF incident reports, weekly summaries | Not started | Medium |
-| 2 | **Sub-Agent Authority** — trust hierarchy, scope enforcement, delegation tree | Not started | Large |
-| 3 | **Multi-Agent Correlation** — cross-session view, conflict detection, interleaved timeline | Not started | Large |
-| 4 | **Memory Content Analysis** — injection scoring beyond regex, cross-session diffs | Not started | Medium |
+| 1 | **Export & Reporting** — JSON/CSV export, incident reports, weekly summaries | ✅ Done | Medium |
+| 2 | **Sub-Agent Authority** — trust hierarchy, scope enforcement, delegation tree | ✅ Done | Large |
+| 3 | **Multi-Agent Correlation** — cross-session view, conflict detection, interleaved timeline | ✅ Done | Large |
+| 4 | **Memory Content Analysis** — injection scoring beyond regex, cross-session diffs | ✅ Done | Medium |
 
 ### Medium Impact
 
 | # | Feature | Status | Effort |
 |---|---------|--------|--------|
-| 5 | **Team Dashboard** — auth layer, multi-user ingestion, shared rules | Not started | Large |
-| 6 | **Plugin System** — custom rules, providers, and widgets via JS API | Not started | Large |
-| 7 | **Automated Response** — kill terminal, block writes, pause agent (opt-in only) | Not started | Medium |
+| 5 | **Team Dashboard** — auth layer, multi-user ingestion, shared rules | ✅ Done | Large |
+| 6 | **Plugin System** — custom rules, providers, and widgets via JS API | ✅ Done | Large |
+| 7 | **Automated Response** — kill terminal, block writes, pause agent (opt-in only) | ✅ Done | Medium |
 
 ---
 
@@ -55,13 +55,17 @@ Already tracking:
 - Git force-push, reset --hard, rebase on shared branches
 - Sensitive file access (.env, id_rsa, /etc/shadow)
 - Memory injection patterns
+- Clipboard operations (pbcopy, xclip, Set-Clipboard, etc.)
+- Context window / token manipulation
+- External URL resolution (shorteners, raw IPs, non-standard ports)
+- Agent confidence / uncertainty detection
 
 Want to add:
 
-- Agent reasoning / confidence (needs provider support)
-- Context window usage correlation
-- Clipboard operations
-- External URL resolution (where do fetches actually go?)
+- ~~Agent reasoning / confidence (needs provider support)~~ ✅ Done
+- ~~Context window usage correlation~~ ✅ Done
+- ~~Clipboard operations~~ ✅ Done
+- ~~External URL resolution (where do fetches actually go?)~~ ✅ Done
 
 ---
 

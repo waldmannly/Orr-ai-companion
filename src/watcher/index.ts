@@ -15,6 +15,9 @@ import { appendToChain, initHashChain } from '../compliance';
 import { evaluatePackRules, loadPacksFromDirectory } from '../rules/packs';
 import { insertPrompt, getSessionPromptCount } from '../prompts';
 import { queueBlockedCommand } from '../commands';
+import { upsertAgentNode, incrementAgentDanger, checkAgentAuthority } from '../agents';
+import { evaluateAutoResponse } from '../response';
+import { evaluatePluginRules } from '../plugins';
 import { execSync } from 'child_process';
 
 export class Watcher {
@@ -362,6 +365,45 @@ export class Watcher {
     counters.total++;
     if (event.risk_level === 'danger') counters.danger++;
     if (event.risk_level === 'warn') counters.warn++;
+
+    // ── Agent tracking: register agent nodes and check authority ──
+    if (event.agent_id) {
+      const provider = this.sessionProvider.get(file.sessionId);
+      upsertAgentNode({
+        id: event.agent_id,
+        session_id: file.sessionId,
+        parent_id: null,
+        provider: provider?.id || event.source_tool || 'unknown',
+      });
+      if (event.risk_level === 'danger') incrementAgentDanger(event.agent_id, file.sessionId);
+      const actionTarget = event.command || event.file_paths?.[0] || event.summary || '';
+      const authResult = checkAgentAuthority(event.agent_id, file.sessionId, { type: event.event_type, target: actionTarget });
+      if (authResult) {
+        broadcastSSE('authority-violation', { agent_id: event.agent_id, session_id: file.sessionId, event_type: event.event_type });
+      }
+    }
+
+    // ── Auto-response evaluation ──
+    try {
+      const autoActions = evaluateAutoResponse({
+        session_id: file.sessionId,
+        event_id: eventId,
+        event_type: event.event_type,
+        risk_level: event.risk_level,
+        danger_count: counters.danger,
+      });
+      for (const autoAction of autoActions) {
+        broadcastSSE('auto-response', autoAction);
+      }
+    } catch {}
+
+    // ── Plugin rules evaluation ──
+    try {
+      const pluginAlerts = evaluatePluginRules(event);
+      for (const pa of pluginAlerts) {
+        broadcastSSE('plugin-alert', { plugin: pa.plugin_id, rule: pa.rule_id, severity: pa.severity, message: pa.message, session_id: file.sessionId });
+      }
+    } catch {}
 
     // Periodically flush session stats
     if (counters.total % 10 === 0) {
