@@ -1469,7 +1469,17 @@ async function viewMemoryFile(filePath) {
 
   const data = await api(`/api/file/read?path=${encodeURIComponent(filePath)}`);
   if (!data || data.error) {
-    document.getElementById('fvContent').innerHTML = `<div class="fv-error">⚠️ ${esc(data?.error || 'Could not read file')}</div>`;
+    const isSession = filePath.startsWith('/memories/session/');
+    const hint = data?.hint || (isSession ? 'Session memory is ephemeral and only exists during the session' : 'The file may have been deleted or the workspace is not currently accessible');
+    document.getElementById('fvContent').innerHTML = `<div class="fv-error">
+      <div style="font-size:1.1rem;margin-bottom:8px;">⚠️ Cannot read memory file</div>
+      <div style="color:var(--text-dim);font-size:.8rem;line-height:1.6;">
+        <strong>Virtual path:</strong> ${esc(filePath)}<br>
+        ${esc(hint)}<br><br>
+        Memory paths like <code>/memories/...</code> are virtual — the actual file
+        location depends on your VS Code installation and workspace.
+      </div>
+    </div>`;
     return;
   }
 
@@ -1510,7 +1520,11 @@ async function openInEditor(filePath) {
 
 async function revealInExplorer(filePath) {
   if (!filePath) return;
-  await fetch('/api/file/reveal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: filePath }) });
+  const res = await fetch('/api/file/reveal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: filePath }) });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    showToast('warn', data.error || 'Could not open file location');
+  }
 }
 
 function formatFileSize(bytes) {

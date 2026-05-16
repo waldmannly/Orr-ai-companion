@@ -26,7 +26,11 @@ test-coverage: build
 
 # Open the dashboard in the default browser
 open:
-	start http://127.0.0.1:3847 2>/dev/null || open http://127.0.0.1:3847 2>/dev/null || xdg-open http://127.0.0.1:3847
+ifeq ($(OS),Windows_NT)
+	cmd /c start http://127.0.0.1:3847
+else
+	@command -v xdg-open >/dev/null 2>&1 && xdg-open http://127.0.0.1:3847 || open http://127.0.0.1:3847
+endif
 
 # Delete build output
 clean:

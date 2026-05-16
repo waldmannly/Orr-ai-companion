@@ -208,10 +208,64 @@ export function createDashboardServer(config: Config): express.Express {
 
   // ── File Deep-Linking ──
 
+  // Resolve Copilot virtual memory paths to real filesystem paths
+  function resolveMemoryPath(virtualPath: string): string | null {
+    if (!virtualPath.startsWith('/memories/')) return null;
+
+    // /memories/repo/X.md → .github/copilot-memory/X.md (in each workspace)
+    if (virtualPath.startsWith('/memories/repo/')) {
+      const relative = virtualPath.replace('/memories/repo/', '');
+      // Check known workspaces from sessions
+      const sessions = getAllSessions(100);
+      for (const s of sessions) {
+        if (!s.workspace) continue;
+        const candidate = path.join(s.workspace, '.github', 'copilot-memory', relative);
+        if (fs.existsSync(candidate)) return candidate;
+      }
+      // Also check cwd
+      const cwdCandidate = path.join(process.cwd(), '.github', 'copilot-memory', relative);
+      if (fs.existsSync(cwdCandidate)) return cwdCandidate;
+      return null;
+    }
+
+    // /memories/session/X.md → not persisted on disk after session ends
+    if (virtualPath.startsWith('/memories/session/')) return null;
+
+    // /memories/X.md (user scope) → %APPDATA%/Code/User/... area
+    const userHome = process.env.USERPROFILE || process.env.HOME || '';
+    const appData = process.env.APPDATA || path.join(userHome, 'AppData', 'Roaming');
+    const relative = virtualPath.replace('/memories/', '');
+
+    // VS Code stores user memories in globalStorage
+    const candidates = [
+      path.join(appData, 'Code', 'User', 'memories', relative),
+      path.join(appData, 'Code', 'User', 'globalStorage', 'github.copilot-chat', 'memories', relative),
+    ];
+    for (const c of candidates) {
+      if (fs.existsSync(c)) return c;
+    }
+    return null;
+  }
+
+  // Resolve a memory path to a real path
+  app.get('/api/memory/resolve', (req, res) => {
+    const memPath = req.query.path as string;
+    if (!memPath) return res.status(400).json({ error: 'Missing path' });
+    const resolved = resolveMemoryPath(memPath);
+    if (!resolved) return res.status(404).json({ error: 'Memory file not found on disk', virtual_path: memPath, hint: memPath.startsWith('/memories/session/') ? 'Session memory is ephemeral and not persisted to disk' : 'Could not locate the physical file — it may have been deleted or the workspace is not accessible' });
+    res.json({ virtual_path: memPath, real_path: resolved });
+  });
+
   // Read file content (text files only, capped at 200KB)
   app.get('/api/file/read', (req, res) => {
-    const filePath = req.query.path as string;
+    let filePath = req.query.path as string;
     if (!filePath || typeof filePath !== 'string') return res.status(400).json({ error: 'Missing path' });
+    // Auto-resolve memory virtual paths
+    if (filePath.startsWith('/memories/')) {
+      const resolved = resolveMemoryPath(filePath);
+      if (!resolved) return res.status(404).json({ error: 'Memory file not found on disk', hint: filePath.startsWith('/memories/session/') ? 'Session memory is ephemeral' : 'Could not locate the physical file' });
+      filePath = resolved;
+    }
     const resolved = path.resolve(filePath);
     if (resolved.includes('..')) return res.status(403).json({ error: 'Invalid path' });
     try {
@@ -226,8 +280,13 @@ export function createDashboardServer(config: Config): express.Express {
 
   // Open file in default editor (VS Code preferred)
   app.post('/api/file/open', (req, res) => {
-    const filePath = req.body?.path as string;
+    let filePath = req.body?.path as string;
     if (!filePath || typeof filePath !== 'string') return res.status(400).json({ error: 'Missing path' });
+    if (filePath.startsWith('/memories/')) {
+      const mem = resolveMemoryPath(filePath);
+      if (!mem) return res.status(404).json({ error: 'Memory file not found on disk' });
+      filePath = mem;
+    }
     const resolved = path.resolve(filePath);
     if (!fs.existsSync(resolved)) return res.status(404).json({ error: 'File not found' });
     // Try VS Code first, fall back to OS default
@@ -242,8 +301,13 @@ export function createDashboardServer(config: Config): express.Express {
 
   // Reveal file/folder in system file explorer
   app.post('/api/file/reveal', (req, res) => {
-    const filePath = req.body?.path as string;
+    let filePath = req.body?.path as string;
     if (!filePath || typeof filePath !== 'string') return res.status(400).json({ error: 'Missing path' });
+    if (filePath.startsWith('/memories/')) {
+      const mem = resolveMemoryPath(filePath);
+      if (!mem) return res.status(404).json({ error: 'Memory file not found on disk' });
+      filePath = mem;
+    }
     const resolved = path.resolve(filePath);
     const dir = fs.existsSync(resolved) && fs.statSync(resolved).isDirectory() ? resolved : path.dirname(resolved);
     if (!fs.existsSync(dir)) return res.status(404).json({ error: 'Path not found' });
