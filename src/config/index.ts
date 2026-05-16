@@ -64,6 +64,15 @@ export interface Config {
   guardrails: GuardrailsConfig;
   /** Directory for community rule packs */
   rulePacksDir: string;
+  /** Token budget enforcement */
+  tokenBudget: {
+    /** Max tokens per session (0 = unlimited) */
+    maxPerSession: number;
+    /** Max tokens per day across all sessions (0 = unlimited) */
+    maxPerDay: number;
+    /** Action when budget exceeded: 'warn' or 'kill' */
+    action: 'warn' | 'kill';
+  };
 }
 
 const DEFAULT_RULE: AlertRuleConfig = { enabled: true, minSeverity: 'warn' };
@@ -106,6 +115,7 @@ const DEFAULTS: Config = {
   customProviders: [],
   guardrails: GUARDRAILS_DEFAULTS,
   rulePacksDir: '',
+  tokenBudget: { maxPerSession: 0, maxPerDay: 0, action: 'warn' },
 };
 
 let configPath = '';

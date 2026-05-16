@@ -181,6 +181,15 @@ function migrate() {
     db.exec(`ALTER TABLE sessions ADD COLUMN git_branch TEXT`);
   }
 
+  // Session linking: task_group for linking related sessions
+  try {
+    db.prepare("SELECT task_group FROM sessions LIMIT 0").run();
+  } catch {
+    db.exec(`ALTER TABLE sessions ADD COLUMN task_group TEXT`);
+    // Auto-populate task_group from project+branch for existing sessions
+    db.exec(`UPDATE sessions SET task_group = project_name || ':' || COALESCE(git_branch, 'default') WHERE task_group IS NULL AND project_name != ''`);
+  }
+
   // One-time dedup cleanup (tracked by pragma so it only runs once)
   const dedupDone = db.pragma('user_version', { simple: true }) as number;
   if (dedupDone < 1) {
@@ -354,6 +363,15 @@ export function upsertSession(info: SessionInfo) {
       warn_count = @warn_count
   `);
   stmt.run(info);
+
+  // Auto-set task_group if not set (links sessions by project+branch)
+  const session = db.prepare('SELECT task_group, git_branch FROM sessions WHERE id = ?').get(info.id) as any;
+  if (!session?.task_group && info.project_name) {
+    const branch = session?.git_branch || 'default';
+    db.prepare('UPDATE sessions SET task_group = ? WHERE id = ? AND (task_group IS NULL OR task_group = \'\')').run(
+      `${info.project_name}:${branch}`, info.id
+    );
+  }
 }
 
 export function getSession(id: string): SessionInfo | undefined {
@@ -875,4 +893,85 @@ export function getFileActivity(filePath: string, limit = 50): Array<{
     timestamp: string; event_type: string; risk_level: string;
     summary: string; session_id: string; provider: string;
   }>;
+}
+
+// ── Session Linking ──
+
+export function setSessionTaskGroup(sessionId: string, taskGroup: string) {
+  db.prepare('UPDATE sessions SET task_group = ? WHERE id = ?').run(taskGroup, sessionId);
+}
+
+export function getLinkedSessions(taskGroup: string): SessionInfo[] {
+  return db.prepare(
+    'SELECT * FROM sessions WHERE task_group = ? ORDER BY started_at DESC'
+  ).all(taskGroup) as SessionInfo[];
+}
+
+export function getTaskGroups(limit = 50): Array<{
+  task_group: string; session_count: number; total_events: number;
+  danger_count: number; first_session: string; last_session: string;
+  project_name: string; git_branch: string | null;
+}> {
+  return db.prepare(`
+    SELECT task_group, COUNT(*) as session_count,
+      SUM(total_events) as total_events, SUM(danger_count) as danger_count,
+      MIN(started_at) as first_session, MAX(started_at) as last_session,
+      project_name, git_branch
+    FROM sessions
+    WHERE task_group IS NOT NULL AND task_group != ''
+    GROUP BY task_group
+    ORDER BY last_session DESC
+    LIMIT ?
+  `).all(limit) as Array<{
+    task_group: string; session_count: number; total_events: number;
+    danger_count: number; first_session: string; last_session: string;
+    project_name: string; git_branch: string | null;
+  }>;
+}
+
+export function getBranchActivitySummary(projectName: string, branch: string): {
+  sessions: SessionInfo[];
+  totalEvents: number;
+  dangerEvents: number;
+  providers: string[];
+  timespan: { first: string; last: string };
+  topRisks: Array<{ event_type: string; risk_level: string; summary: string; timestamp: string }>;
+} {
+  const sessions = db.prepare(
+    `SELECT * FROM sessions WHERE project_name = ? AND git_branch = ? ORDER BY started_at DESC`
+  ).all(projectName, branch) as SessionInfo[];
+
+  const sessionIds = sessions.map(s => s.id);
+  if (!sessionIds.length) {
+    return { sessions: [], totalEvents: 0, dangerEvents: 0, providers: [], timespan: { first: '', last: '' }, topRisks: [] };
+  }
+
+  const placeholders = sessionIds.map(() => '?').join(',');
+  const totalEvents = (db.prepare(
+    `SELECT COUNT(*) as c FROM events WHERE session_id IN (${placeholders})`
+  ).get(...sessionIds) as { c: number }).c;
+
+  const dangerEvents = (db.prepare(
+    `SELECT COUNT(*) as c FROM events WHERE session_id IN (${placeholders}) AND risk_level = 'danger'`
+  ).get(...sessionIds) as { c: number }).c;
+
+  const providers = [...new Set(sessions.map(s => s.source_tool))];
+
+  const topRisks = db.prepare(`
+    SELECT event_type, risk_level, summary, timestamp FROM events
+    WHERE session_id IN (${placeholders}) AND risk_level IN ('warn', 'danger')
+    ORDER BY timestamp DESC LIMIT 20
+  `).all(...sessionIds) as Array<{ event_type: string; risk_level: string; summary: string; timestamp: string }>;
+
+  return {
+    sessions,
+    totalEvents,
+    dangerEvents,
+    providers,
+    timespan: {
+      first: sessions[sessions.length - 1]?.started_at || '',
+      last: sessions[0]?.started_at || '',
+    },
+    topRisks,
+  };
 }

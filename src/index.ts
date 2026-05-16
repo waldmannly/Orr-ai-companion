@@ -3,36 +3,45 @@
 import { loadConfig } from './config';
 import { Watcher } from './watcher';
 import { startDashboard } from './dashboard/server';
+import { runCli } from './cli';
 
-console.log('');
-console.log('  ╔══════════════════════════════════════╗');
-console.log('  ║   🛡  AL Companion Tracker           ║');
-console.log('  ║   AI Agent Activity Monitor           ║');
-console.log('  ╚══════════════════════════════════════╝');
-console.log('');
+const args = process.argv.slice(2);
 
-const config = loadConfig();
+// If any CLI subcommand is given, delegate to CLI handler
+if (args.length > 0 && !args[0].startsWith('-')) {
+  runCli(args);
+} else {
+  // Default: start the full tracker (watcher + dashboard)
+  console.log('');
+  console.log('  ╔══════════════════════════════════════╗');
+  console.log('  ║   🛡  AL Companion Tracker           ║');
+  console.log('  ║   AI Agent Activity Monitor           ║');
+  console.log('  ╚══════════════════════════════════════╝');
+  console.log('');
 
-// Start the watcher (ingests logs → SQLite)
-const watcher = new Watcher(config);
-watcher.start();
+  const config = loadConfig();
 
-// Start the dashboard web server
-startDashboard(config);
+  // Start the watcher (ingests logs → SQLite)
+  const watcher = new Watcher(config);
+  watcher.start();
 
-console.log('');
-console.log(`[tracker] Dashboard: http://${config.dashboard.host}:${config.dashboard.port}`);
-console.log('[tracker] Press Ctrl+C to stop');
-console.log('');
+  // Start the dashboard web server
+  startDashboard(config);
 
-// Graceful shutdown
-process.on('SIGINT', () => {
-  console.log('\n[tracker] Shutting down...');
-  watcher.stop();
-  process.exit(0);
-});
+  console.log('');
+  console.log(`[tracker] Dashboard: http://${config.dashboard.host}:${config.dashboard.port}`);
+  console.log('[tracker] Press Ctrl+C to stop');
+  console.log('');
 
-process.on('SIGTERM', () => {
-  watcher.stop();
-  process.exit(0);
-});
+  // Graceful shutdown
+  process.on('SIGINT', () => {
+    console.log('\n[tracker] Shutting down...');
+    watcher.stop();
+    process.exit(0);
+  });
+
+  process.on('SIGTERM', () => {
+    watcher.stop();
+    process.exit(0);
+  });
+}

@@ -23,7 +23,7 @@ import { execSync } from 'child_process';
 export class Watcher {
   private config: Config;
   private tailer: LogTailer;
-  private sessionCounters = new Map<string, { total: number; danger: number; warn: number }>();
+  private sessionCounters = new Map<string, { total: number; danger: number; warn: number; tokens: number }>();
   private parserStates = new Map<string, SessionParserState>();
   private providers: LogProvider[] = [];
   /** Map sessionId → provider so we know which parser to use */
@@ -143,7 +143,7 @@ export class Watcher {
     }
 
     if (!this.sessionCounters.has(file.sessionId)) {
-      this.sessionCounters.set(file.sessionId, { total: 0, danger: 0, warn: 0 });
+      this.sessionCounters.set(file.sessionId, { total: 0, danger: 0, warn: 0, tokens: 0 });
     }
 
     if (!this.parserStates.has(file.sessionId)) {
@@ -200,6 +200,28 @@ export class Watcher {
     if (event.event_type === 'user_message' || event.event_type === 'assistant_message') {
       const textLen = (event.summary || '').length + (event.raw_log || '').length;
       event.token_count = Math.max(1, Math.round(textLen / 4)); // rough approximation
+    }
+
+    // Token budget enforcement
+    if (event.token_count) {
+      const counters = this.sessionCounters.get(file.sessionId);
+      if (counters) counters.tokens += event.token_count;
+      const budget = this.config.tokenBudget;
+      if (budget && counters) {
+        if (budget.maxPerSession > 0 && counters.tokens > budget.maxPerSession) {
+          const msg = `Token budget exceeded: ${counters.tokens.toLocaleString()} / ${budget.maxPerSession.toLocaleString()} per session`;
+          if (budget.action === 'kill') {
+            broadcastSSE('budget-exceeded', { session_id: file.sessionId, tokens: counters.tokens, limit: budget.maxPerSession, action: 'kill' });
+            insertAlert({ event_id: null, session_id: file.sessionId, timestamp: event.timestamp, alert_type: 'token_budget', severity: 'danger', message: msg, acknowledged: false });
+          } else {
+            broadcastSSE('budget-warning', { session_id: file.sessionId, tokens: counters.tokens, limit: budget.maxPerSession });
+            if (counters.tokens - event.token_count <= budget.maxPerSession) {
+              // First time exceeding — alert once
+              insertAlert({ event_id: null, session_id: file.sessionId, timestamp: event.timestamp, alert_type: 'token_budget', severity: 'warn', message: msg, acknowledged: false });
+            }
+          }
+        }
+      }
     }
 
     // Store event

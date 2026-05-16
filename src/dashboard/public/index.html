@@ -1805,6 +1805,18 @@
       <div id="responseContent"><div class="skeleton"></div></div>
     </div>
 
+    <!-- PAGE: REPLAY -->
+    <div class="page" id="page-replay">
+      <h2 style="margin:0 0 12px">🔄 What Just Happened?</h2>
+      <div id="replayContent"><div class="skeleton"></div></div>
+    </div>
+
+    <!-- PAGE: LINKED -->
+    <div class="page" id="page-linked">
+      <h2 style="margin:0 0 12px">🔗 Linked Sessions</h2>
+      <div id="linkedContent"><div class="skeleton"></div></div>
+    </div>
+
   </div>
 
   <!-- Bottom Nav -->
@@ -1864,6 +1876,12 @@
     </button>
     <button class="bottom-nav-item" data-page="response">
       <span class="bottom-nav-icon">⚡</span>Response
+    </button>
+    <button class="bottom-nav-item" data-page="replay">
+      <span class="bottom-nav-icon">🔄</span>Replay
+    </button>
+    <button class="bottom-nav-item" data-page="linked">
+      <span class="bottom-nav-icon">🔗</span>Tasks
     </button>
     <button class="bottom-nav-item" data-page="settings">
       <span class="bottom-nav-icon">⚙️</span>Settings
@@ -2605,6 +2623,8 @@ function showPage(name, sessionId) {
   else if (name === 'plugins') loadPlugins();
   else if (name === 'team') loadTeam();
   else if (name === 'response') loadResponse();
+  else if (name === 'replay') loadReplay();
+  else if (name === 'linked') loadLinkedSessions();
   else if (name === 'settings') loadSettings();
 }
 
@@ -4643,6 +4663,179 @@ async function reverseActionUI(id) {
     showToast('info', 'Action reversed');
     loadResponse();
   } catch { showToast('danger', 'Failed to reverse action'); }
+}
+
+// ── Quick Replay — "What Just Happened?" ──
+async function loadReplay() {
+  const el = document.getElementById('replayContent');
+  el.innerHTML = '<div class="skeleton"></div>';
+  try {
+    const events = await fetch('/api/events/recent?limit=200').then(r => r.json());
+    const now = Date.now();
+    const fiveMinAgo = new Date(now - 5 * 60000).toISOString();
+    const tenMinAgo = new Date(now - 10 * 60000).toISOString();
+
+    const last5 = events.filter(e => e.timestamp > fiveMinAgo);
+    const last10 = events.filter(e => e.timestamp > tenMinAgo);
+
+    const filesModified = new Set();
+    const secretsAccessed = [];
+    const commandsRun = [];
+    const dangerEvents = [];
+
+    for (const e of last10) {
+      if (e.file_paths) {
+        try { JSON.parse(e.file_paths).forEach(f => filesModified.add(f)); } catch {}
+      }
+      if (e.event_type === 'terminal_command' && e.command) commandsRun.push(e);
+      if (e.risk_level === 'danger') dangerEvents.push(e);
+      if (e.risk_signals) {
+        try {
+          const signals = typeof e.risk_signals === 'string' ? JSON.parse(e.risk_signals) : e.risk_signals;
+          if (signals.some(s => s.rule === 'sensitive_file' || s.rule === 'env_access')) secretsAccessed.push(e);
+        } catch {}
+      }
+    }
+
+    let h = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px;">
+      <div class="card"><div class="card-title">Last 5 min</div><div style="font-size:2rem;font-weight:700;color:var(--accent);">${last5.length}</div><div style="font-size:.78rem;color:var(--muted);">events</div></div>
+      <div class="card"><div class="card-title">Last 10 min</div><div style="font-size:2rem;font-weight:700;">${last10.length}</div><div style="font-size:.78rem;color:var(--muted);">events</div></div>
+    </div>`;
+
+    // Quick stats
+    h += `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px;">
+      <div class="card" style="text-align:center;"><span style="font-size:1.4rem;font-weight:700;">${filesModified.size}</span><br><span style="font-size:.78rem;color:var(--muted);">Files Modified</span></div>
+      <div class="card" style="text-align:center;"><span style="font-size:1.4rem;font-weight:700;color:var(--danger);">${dangerEvents.length}</span><br><span style="font-size:.78rem;color:var(--muted);">Danger Events</span></div>
+      <div class="card" style="text-align:center;"><span style="font-size:1.4rem;font-weight:700;">${commandsRun.length}</span><br><span style="font-size:.78rem;color:var(--muted);">Commands Run</span></div>
+    </div>`;
+
+    // Secrets accessed
+    if (secretsAccessed.length) {
+      h += `<div class="card" style="margin-bottom:12px;"><div class="card-title" style="color:var(--danger);">🔑 Secrets / Sensitive Files Accessed</div><div style="font-size:.82rem;">`;
+      for (const s of secretsAccessed.slice(0, 10)) {
+        h += `<div style="padding:3px 0;">🔴 ${esc(s.summary || s.event_type)} <span style="color:var(--muted)">${fmtTime(s.timestamp)}</span></div>`;
+      }
+      h += '</div></div>';
+    }
+
+    // Danger events
+    if (dangerEvents.length) {
+      h += `<div class="card" style="margin-bottom:12px;"><div class="card-title" style="color:var(--danger);">⚠️ Danger Events</div><div style="font-size:.82rem;">`;
+      for (const d of dangerEvents.slice(0, 15)) {
+        h += `<div style="padding:3px 0;">🔴 <strong>${esc(d.event_type)}</strong> — ${esc(d.summary || '')} <span style="color:var(--muted)">${fmtTime(d.timestamp)}</span></div>`;
+      }
+      h += '</div></div>';
+    }
+
+    // Event timeline
+    h += `<div class="card"><div class="card-title">📋 Event Timeline (last 10 min)</div><div style="font-size:.82rem;max-height:400px;overflow-y:auto;">`;
+    if (!last10.length) h += '<div class="empty-state">No events in the last 10 minutes</div>';
+    for (const e of last10) {
+      const riskColor = e.risk_level === 'danger' ? 'var(--danger)' : e.risk_level === 'warn' ? 'var(--warn)' : 'var(--muted)';
+      h += `<div style="padding:4px 0;border-bottom:1px solid var(--border);">
+        <span style="color:${riskColor};font-weight:600;">${icon(e.event_type)}</span>
+        <strong>${esc(e.event_type)}</strong> ${esc((e.summary || '').substring(0, 100))}
+        <span style="color:var(--muted);float:right;">${fmtTime(e.timestamp)}</span>
+      </div>`;
+    }
+    h += '</div></div>';
+
+    // Files modified list
+    if (filesModified.size) {
+      h += `<div class="card" style="margin-top:12px;"><div class="card-title">📁 Files Modified (${filesModified.size})</div><div style="font-size:.82rem;">`;
+      for (const f of [...filesModified].slice(0, 20)) {
+        h += `<div style="padding:2px 0;"><code style="font-size:.8rem;">${esc(f)}</code></div>`;
+      }
+      if (filesModified.size > 20) h += `<div style="color:var(--muted);">...and ${filesModified.size - 20} more</div>`;
+      h += '</div></div>';
+    }
+
+    el.innerHTML = h;
+  } catch { el.innerHTML = '<div class="empty-state">Failed to load replay data</div>'; }
+}
+
+// ── Linked Sessions / Task Groups ──
+async function loadLinkedSessions() {
+  const el = document.getElementById('linkedContent');
+  el.innerHTML = '<div class="skeleton"></div>';
+  try {
+    const tasks = await fetch('/api/tasks?limit=50').then(r => r.json());
+
+    let h = `<div class="card" style="margin-bottom:12px;">
+      <div class="card-title">📋 Task Groups (${tasks.length})</div>
+      <p style="font-size:.78rem;color:var(--muted);margin:0 0 8px;">Sessions auto-linked by project + branch. Click to view all sessions in a task.</p>`;
+
+    if (!tasks.length) h += '<div class="empty-state">No task groups found yet. Sessions are linked automatically when detected on the same project and branch.</div>';
+    else {
+      for (const t of tasks) {
+        const dangerColor = t.danger_count > 0 ? 'var(--danger)' : 'var(--muted)';
+        h += `<div style="padding:10px 0;border-bottom:1px solid var(--border);cursor:pointer;" onclick="drillTaskGroup('${esc(t.task_group)}')">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div>
+              <strong style="font-size:.95rem;">${esc(t.task_group)}</strong>
+              <div style="font-size:.78rem;color:var(--muted);">${t.session_count} sessions · ${t.total_events} events${t.git_branch ? ' · 🌿 ' + esc(t.git_branch) : ''}</div>
+            </div>
+            <div style="text-align:right;">
+              <span style="color:${dangerColor};font-weight:600;">${t.danger_count} danger</span>
+              <div style="font-size:.72rem;color:var(--muted);">${fmtDate(t.first_session)} — ${fmtDate(t.last_session)}</div>
+            </div>
+          </div>
+        </div>`;
+      }
+    }
+    h += '</div>';
+
+    // PR Summary generator
+    h += `<div class="card">
+      <div class="card-title">📝 Generate PR Summary</div>
+      <div style="display:flex;gap:8px;margin-bottom:8px;">
+        <input id="prProject" placeholder="Project name" style="flex:1;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:.85rem;">
+        <input id="prBranch" placeholder="Branch name" style="flex:1;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:.85rem;">
+        <button class="btn" onclick="generatePRSummary()">Generate</button>
+      </div>
+      <div id="prSummaryOutput" style="font-size:.82rem;white-space:pre-wrap;display:none;background:var(--bg);padding:8px;border-radius:6px;border:1px solid var(--border);"></div>
+    </div>`;
+
+    el.innerHTML = h;
+  } catch { el.innerHTML = '<div class="empty-state">Failed to load task groups</div>'; }
+}
+
+async function drillTaskGroup(taskGroup) {
+  const el = document.getElementById('linkedContent');
+  try {
+    const sessions = await fetch('/api/tasks/' + encodeURIComponent(taskGroup) + '/sessions').then(r => r.json());
+    let h = `<button class="btn" onclick="loadLinkedSessions()" style="margin-bottom:12px;">← Back to all tasks</button>`;
+    h += `<div class="card"><div class="card-title">📋 Sessions in "${esc(taskGroup)}" (${sessions.length})</div>`;
+    for (const s of sessions) {
+      h += `<div style="padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer;" onclick="showPage('timeline','${esc(s.id)}')">
+        <div style="display:flex;justify-content:space-between;">
+          <div>
+            <strong>${esc(s.id.slice(0, 16))}…</strong> <span class="badge">${esc(s.source_tool)}</span>
+            <div style="font-size:.78rem;color:var(--muted);">${s.total_events} events</div>
+          </div>
+          <div style="text-align:right;">
+            <span style="color:${s.danger_count > 0 ? 'var(--danger)' : 'var(--muted)'};">${s.danger_count} danger</span>
+            <div style="font-size:.72rem;color:var(--muted);">${fmtDate(s.started_at)} ${fmtTime(s.started_at)}</div>
+          </div>
+        </div>
+      </div>`;
+    }
+    h += '</div>';
+    el.innerHTML = h;
+  } catch { el.innerHTML = '<div class="empty-state">Failed to load task sessions</div>'; }
+}
+
+async function generatePRSummary() {
+  const project = document.getElementById('prProject').value.trim();
+  const branch = document.getElementById('prBranch').value.trim();
+  if (!project || !branch) return showToast('warn', 'Enter project and branch names');
+  try {
+    const res = await fetch('/api/pr-summary/text?project=' + encodeURIComponent(project) + '&branch=' + encodeURIComponent(branch));
+    const text = await res.text();
+    const out = document.getElementById('prSummaryOutput');
+    out.textContent = text;
+    out.style.display = 'block';
+  } catch { showToast('danger', 'Failed to generate PR summary'); }
 }
 
 // ── Initial load ──

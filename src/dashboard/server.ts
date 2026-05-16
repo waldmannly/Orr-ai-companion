@@ -13,6 +13,7 @@ import {
   getEventsFiltered, getSessionHealthMetrics, getGlobalMetrics,
   getGuardrailViolations, getSessionsByBranch, getBranchSummary,
   getActiveSessionStatus, getFileActivity, setSessionBranch,
+  setSessionTaskGroup, getLinkedSessions, getTaskGroups, getBranchActivitySummary,
 } from '../storage/db';
 import { testWebhook } from '../notifications';
 import { getAllTrustScores, getTrustScore, getProviderComparison } from '../trust';
@@ -915,6 +916,63 @@ export function createDashboardServer(config: Config): express.Express {
 
   app.get('/api/team/stats', (_req, res) => {
     res.json(getTeamStats());
+  });
+
+  // ── Session Linking ──
+
+  app.get('/api/tasks', (req, res) => {
+    const limit = Math.min(Number(req.query.limit) || 50, 200);
+    res.json(getTaskGroups(limit));
+  });
+
+  app.get('/api/tasks/:taskGroup/sessions', (req, res) => {
+    res.json(getLinkedSessions(decodeURIComponent(req.params.taskGroup)));
+  });
+
+  app.put('/api/sessions/:id/task-group', (req, res) => {
+    const { task_group } = req.body || {};
+    if (!task_group) return res.status(400).json({ error: 'task_group required' });
+    setSessionTaskGroup(req.params.id, task_group);
+    res.json({ ok: true });
+  });
+
+  // ── PR / Branch Activity Summary ──
+
+  app.get('/api/pr-summary', (req, res) => {
+    const project = req.query.project as string;
+    const branch = req.query.branch as string;
+    if (!project || !branch) return res.status(400).json({ error: 'project and branch query params required' });
+    res.json(getBranchActivitySummary(project, branch));
+  });
+
+  app.get('/api/pr-summary/text', (req, res) => {
+    const project = req.query.project as string;
+    const branch = req.query.branch as string;
+    if (!project || !branch) return res.status(400).json({ error: 'project and branch query params required' });
+    const data = getBranchActivitySummary(project, branch);
+
+    // Generate human-readable PR comment text
+    let text = `## 🛡️ AI Agent Activity Summary\n\n`;
+    text += `**Branch:** ${branch} | **Project:** ${project}\n\n`;
+    text += `| Metric | Value |\n|---|---|\n`;
+    text += `| Sessions | ${data.sessions.length} |\n`;
+    text += `| Total Events | ${data.totalEvents} |\n`;
+    text += `| Danger Events | ${data.dangerEvents} |\n`;
+    text += `| Providers | ${data.providers.join(', ')} |\n`;
+    if (data.timespan.first) {
+      text += `| Time Span | ${new Date(data.timespan.first).toLocaleDateString()} — ${new Date(data.timespan.last).toLocaleDateString()} |\n`;
+    }
+    if (data.topRisks.length) {
+      text += `\n### ⚠️ Top Risks\n\n`;
+      for (const r of data.topRisks.slice(0, 10)) {
+        const icon = r.risk_level === 'danger' ? '🔴' : '🟡';
+        text += `- ${icon} **${r.event_type}** — ${r.summary}\n`;
+      }
+    }
+    if (!data.dangerEvents) {
+      text += `\n✅ No danger-level events detected.\n`;
+    }
+    res.type('text/markdown').send(text);
   });
 
   // ── Automated Response ──
