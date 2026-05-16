@@ -63,7 +63,7 @@ assert('SPA fallback works', (await html('/any/route')).text.includes('AL Compan
 
 // Dark theme CSS
 assert('CSS has dark theme variables', page.text.includes('--bg:') && page.text.includes('#0e1117'));
-assert('CSS has 720px panel width', page.text.includes('width: 720px'));
+assert('CSS has fluid panel width', page.text.includes('width: 100%'));
 assert('CSS has donut chart styles', page.text.includes('.donut'));
 assert('CSS has timeline styles', page.text.includes('.tl-item'));
 assert('CSS has skeleton loading', page.text.includes('.skeleton'));
