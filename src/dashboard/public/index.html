@@ -498,8 +498,8 @@
     flex-direction: column;
     align-items: center;
     gap: 4px;
-    padding: 10px 4px 14px;
-    font-size: .7rem;
+    padding: 10px 2px 14px;
+    font-size: .65rem;
     font-weight: 500;
     color: var(--text-dim);
     cursor: pointer;
@@ -1048,6 +1048,208 @@
   .sev-pill.active { background: rgba(88,166,255,.1); border-color: var(--accent); color: var(--accent); }
   .sev-pill.active.danger { background: rgba(248,81,73,.1); border-color: var(--red); color: var(--red); }
   .sev-pill.active.warn { background: rgba(210,153,34,.1); border-color: var(--yellow); color: var(--yellow); }
+
+  /* ── Risk Signal Cards ───────────────────────────── */
+  .risk-signals {
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .risk-signal {
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
+    border-left: 3px solid;
+    font-size: .78rem;
+    line-height: 1.5;
+  }
+  .risk-signal.sig-danger { background: rgba(248,81,73,.06); border-left-color: var(--red); }
+  .risk-signal.sig-warn   { background: rgba(210,153,34,.06); border-left-color: var(--yellow); }
+  .risk-signal.sig-watch  { background: rgba(63,185,80,.04); border-left-color: var(--green); }
+  .risk-signal .sig-reason {
+    color: var(--text);
+    font-weight: 500;
+  }
+  .risk-signal .sig-danger-text {
+    color: var(--text-dim);
+    margin-top: 3px;
+    font-size: .74rem;
+  }
+  .risk-signal .sig-danger-text::before {
+    content: '⚡ Risk: ';
+    color: var(--orange);
+    font-weight: 600;
+  }
+  .risk-signal .sig-rule {
+    display: inline-block;
+    font-size: .65rem;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: rgba(139,148,158,.1);
+    color: var(--text-dim);
+    margin-right: 6px;
+    font-family: var(--mono);
+  }
+
+  /* ── Alert explanation in security page ──────────── */
+  .alert-explain {
+    font-size: .76rem;
+    color: var(--text-dim);
+    margin-top: 4px;
+    line-height: 1.5;
+    padding-left: 2px;
+  }
+
+  /* ── Settings Page ──────────────────────────────── */
+  .settings-section {
+    margin-bottom: 20px;
+  }
+  .settings-section-title {
+    font-size: .82rem;
+    font-weight: 600;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+  .setting-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    margin-bottom: 6px;
+    gap: 12px;
+  }
+  .setting-row:hover { border-color: var(--border-hover); }
+  .setting-info {
+    flex: 1;
+    min-width: 0;
+  }
+  .setting-name {
+    font-size: .8rem;
+    font-weight: 500;
+    color: var(--text);
+  }
+  .setting-desc {
+    font-size: .7rem;
+    color: var(--text-dim);
+    margin-top: 2px;
+    line-height: 1.4;
+  }
+  .setting-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  /* Toggle switch */
+  .toggle {
+    position: relative;
+    width: 38px;
+    height: 20px;
+    background: rgba(139,148,158,.25);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background .2s;
+  }
+  .toggle.on { background: var(--accent); }
+  .toggle::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    background: white;
+    border-radius: 50%;
+    transition: transform .2s;
+  }
+  .toggle.on::after { transform: translateX(18px); }
+
+  /* Severity select in settings */
+  .sev-select {
+    background: var(--card);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 3px 6px;
+    font-size: .72rem;
+    font-family: var(--mono);
+    cursor: pointer;
+  }
+  .sev-select:focus { border-color: var(--accent); outline: none; }
+
+  /* Settings input fields */
+  .setting-input {
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 6px 10px;
+    font-size: .78rem;
+    font-family: var(--mono);
+    width: 100%;
+  }
+  .setting-input:focus { border-color: var(--accent); outline: none; }
+  .setting-textarea {
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px 10px;
+    font-size: .74rem;
+    font-family: var(--mono);
+    width: 100%;
+    min-height: 60px;
+    resize: vertical;
+    line-height: 1.6;
+  }
+  .setting-textarea:focus { border-color: var(--accent); outline: none; }
+
+  .settings-save-bar {
+    position: sticky;
+    bottom: 0;
+    background: var(--card);
+    border-top: 1px solid var(--border);
+    padding: 10px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    margin: 0 -16px -16px;
+  }
+  .settings-save-btn {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius-sm);
+    padding: 8px 20px;
+    font-size: .8rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .settings-save-btn:hover { opacity: .9; }
+  .settings-save-btn:disabled { opacity: .4; cursor: default; }
+  .settings-reset-btn {
+    background: transparent;
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 8px 14px;
+    font-size: .75rem;
+    cursor: pointer;
+  }
+  .settings-reset-btn:hover { color: var(--red); border-color: var(--red); }
+  .settings-dirty {
+    font-size: .72rem;
+    color: var(--yellow);
+  }
 </style>
 </head>
 <body>
@@ -1128,6 +1330,11 @@
       <div id="projectsContent"><div class="skeleton"></div><div class="skeleton"></div></div>
     </div>
 
+    <!-- PAGE: SETTINGS -->
+    <div class="page" id="page-settings">
+      <div id="settingsContent"><div class="skeleton"></div></div>
+    </div>
+
   </div>
 
   <!-- Bottom Nav -->
@@ -1151,6 +1358,9 @@
     </button>
     <button class="bottom-nav-item" data-page="projects">
       <span class="bottom-nav-icon">📁</span>Projects
+    </button>
+    <button class="bottom-nav-item" data-page="settings">
+      <span class="bottom-nav-icon">⚙️</span>Settings
     </button>
   </div>
 
@@ -1613,6 +1823,7 @@ function showPage(name, sessionId) {
   else if (name === 'security') loadSecurity();
   else if (name === 'memory') loadMemory();
   else if (name === 'projects') loadProjects();
+  else if (name === 'settings') loadSettings();
 }
 
 // ── Format Helpers ──
@@ -2052,7 +2263,24 @@ function buildDetailHtml(e) {
     parts.push(`files: ${links}`);
   }
   if (e.duration_ms) parts.push(`duration: ${e.duration_ms}ms`);
+
+  // Render risk signals if present
+  if (e.risk_signals && e.risk_signals.length > 0) {
+    parts.push(buildRiskSignalsHtml(e.risk_signals));
+  }
+
   return parts.join('\n');
+}
+
+function buildRiskSignalsHtml(signals) {
+  if (!signals || signals.length === 0) return '';
+  return `<div class="risk-signals" onclick="event.stopPropagation()">${signals.map(s => `
+    <div class="risk-signal sig-${s.level}">
+      <span class="sig-rule">${esc(s.rule)}</span>
+      <span class="sig-reason">${esc(s.reason)}</span>
+      <div class="sig-danger-text">${esc(s.danger)}</div>
+    </div>
+  `).join('')}</div>`;
 }
 
 function buildSubagentDetail(params) {
@@ -2235,6 +2463,194 @@ async function loadProjects() {
       `;
     }).join('')}
   `;
+}
+
+// ── SETTINGS Page ──
+const ALERT_RULE_META = {
+  destructive_commands: { icon: '💣', name: 'Destructive Commands', desc: 'rm -rf, DROP TABLE, format C:, and other dangerous terminal commands' },
+  sensitive_files: { icon: '🔑', name: 'Sensitive File Access', desc: '.env, .pem, credentials, and other secret files being read or written' },
+  memory_operations: { icon: '🧠', name: 'Memory Operations', desc: 'AI agent reading, writing, or deleting persistent memory entries' },
+  memory_injection: { icon: '🚨', name: 'Memory Injection', desc: 'Prompt injection attempts hidden in memory writes — highest priority threat' },
+  deployment: { icon: '🚀', name: 'Deployments', desc: 'Production deployments, npm publish, docker push, Kubernetes apply, CI/CD triggers' },
+  ssh_remote: { icon: '🔌', name: 'SSH & Remote Access', desc: 'SSH, SCP, rsync, SFTP, netcat — connections to remote servers' },
+  data_exfiltration: { icon: '📤', name: 'Data Exfiltration', desc: 'curl POST, piping to shells, encoded data transfers — potential data leaks' },
+  suspicious_download: { icon: '📥', name: 'Suspicious Downloads', desc: 'Downloading executables, scripts, or packages from untrusted sources' },
+  suspicious_fetch: { icon: '🌐', name: 'Suspicious Web Fetch', desc: 'AI agent fetching from paste services (pastebin, hastebin, etc.)' },
+  network_access: { icon: '🔗', name: 'Network Access', desc: 'General curl/wget/fetch commands that access the network' },
+  force_push: { icon: '⚡', name: 'Force Push', desc: 'git push --force overwrites remote branch history' },
+  file_operations: { icon: '📂', name: 'File Operations', desc: 'All file reads, writes, creates, and deletes (high volume — disable for less noise)' },
+  git_operations: { icon: '📦', name: 'Git Operations', desc: 'Commits, pushes, resets, and other git commands' },
+  subagent_spawn: { icon: '🤖', name: 'Sub-Agent Spawns', desc: 'AI agent delegating work to sub-agents with reduced oversight' },
+};
+
+let settingsDraft = null;
+
+async function loadSettings() {
+  const config = await api('/api/settings');
+  if (!config) {
+    document.getElementById('settingsContent').innerHTML = '<div class="empty-state"><div class="icon">⚙️</div><div class="msg">Failed to load settings</div></div>';
+    return;
+  }
+  settingsDraft = JSON.parse(JSON.stringify(config));
+  renderSettings();
+}
+
+function renderSettings() {
+  const c = settingsDraft;
+  const rules = c.alertRules || {};
+
+  const rulesHtml = Object.entries(ALERT_RULE_META).map(([key, meta]) => {
+    const rule = rules[key] || { enabled: true, minSeverity: 'warn' };
+    return `
+      <div class="setting-row">
+        <div class="setting-info">
+          <div class="setting-name">${meta.icon} ${meta.name}</div>
+          <div class="setting-desc">${meta.desc}</div>
+        </div>
+        <div class="setting-controls">
+          <select class="sev-select" onchange="updateAlertRule('${key}','minSeverity',this.value)" ${!rule.enabled ? 'disabled' : ''}>
+            <option value="watch" ${rule.minSeverity === 'watch' ? 'selected' : ''}>watch+</option>
+            <option value="warn" ${rule.minSeverity === 'warn' ? 'selected' : ''}>warn+</option>
+            <option value="danger" ${rule.minSeverity === 'danger' ? 'selected' : ''}>danger only</option>
+          </select>
+          <div class="toggle ${rule.enabled ? 'on' : ''}" onclick="toggleAlertRule('${key}', this)"></div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  const dangerCmds = (c.dangerousCommands || []).join('\n');
+  const sensitivePatterns = (c.sensitiveFiles?.patterns || []).join('\n');
+
+  document.getElementById('settingsContent').innerHTML = `
+    <div class="settings-section">
+      <div class="settings-section-title">Alert Rules</div>
+      <div class="setting-desc" style="margin-bottom:10px;">Choose which events trigger alerts and at what severity level. Toggle off rules you don't need.</div>
+      ${rulesHtml}
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title">Dangerous Commands</div>
+      <div class="setting-desc" style="margin-bottom:8px;">One pattern per line. Commands matching these will trigger danger-level alerts.</div>
+      <textarea class="setting-textarea" id="settingsDangerCmds" rows="6" spellcheck="false">${esc(dangerCmds)}</textarea>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title">Sensitive File Patterns</div>
+      <div class="setting-desc" style="margin-bottom:8px;">Glob patterns (one per line) for files that should trigger warnings when accessed.</div>
+      <textarea class="setting-textarea" id="settingsSensitivePatterns" rows="5" spellcheck="false">${esc(sensitivePatterns)}</textarea>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title">Retention</div>
+      <div class="setting-row">
+        <div class="setting-info">
+          <div class="setting-name">Max Age (days)</div>
+          <div class="setting-desc">Events older than this are pruned at startup</div>
+        </div>
+        <div class="setting-controls">
+          <input class="sev-select" type="number" min="1" max="365" value="${c.retention?.maxAgeDays || 90}" id="settingsRetentionDays" style="width:60px;text-align:center;">
+        </div>
+      </div>
+      <div class="setting-row">
+        <div class="setting-info">
+          <div class="setting-name">Max DB Size (MB)</div>
+          <div class="setting-desc">Maximum database size before oldest events are pruned</div>
+        </div>
+        <div class="setting-controls">
+          <input class="sev-select" type="number" min="50" max="5000" value="${c.retention?.maxDbSizeMB || 500}" id="settingsRetentionSize" style="width:60px;text-align:center;">
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title">Dashboard</div>
+      <div class="setting-row">
+        <div class="setting-info">
+          <div class="setting-name">Port</div>
+          <div class="setting-desc">Dashboard server port (restart required)</div>
+        </div>
+        <div class="setting-controls">
+          <input class="sev-select" type="number" min="1024" max="65535" value="${c.dashboard?.port || 3847}" id="settingsPort" style="width:70px;text-align:center;">
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-save-bar">
+      <button class="settings-reset-btn" onclick="loadSettings()">Reset</button>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span class="settings-dirty" id="settingsDirtyLabel" style="display:none;">Unsaved changes</span>
+        <button class="settings-save-btn" onclick="saveSettings()">Save Settings</button>
+      </div>
+    </div>
+  `;
+}
+
+function toggleAlertRule(key, el) {
+  if (!settingsDraft.alertRules) settingsDraft.alertRules = {};
+  if (!settingsDraft.alertRules[key]) settingsDraft.alertRules[key] = { enabled: true, minSeverity: 'warn' };
+  settingsDraft.alertRules[key].enabled = !settingsDraft.alertRules[key].enabled;
+  el.classList.toggle('on');
+  // Disable/enable the sibling select
+  const select = el.parentElement.querySelector('.sev-select');
+  if (select) select.disabled = !settingsDraft.alertRules[key].enabled;
+  markSettingsDirty();
+}
+
+function updateAlertRule(key, prop, value) {
+  if (!settingsDraft.alertRules) settingsDraft.alertRules = {};
+  if (!settingsDraft.alertRules[key]) settingsDraft.alertRules[key] = { enabled: true, minSeverity: 'warn' };
+  settingsDraft.alertRules[key][prop] = value;
+  markSettingsDirty();
+}
+
+function markSettingsDirty() {
+  const label = document.getElementById('settingsDirtyLabel');
+  if (label) label.style.display = '';
+}
+
+async function saveSettings() {
+  // Gather textarea values
+  const dangerEl = document.getElementById('settingsDangerCmds');
+  if (dangerEl) settingsDraft.dangerousCommands = dangerEl.value.split('\n').map(s => s.trim()).filter(Boolean);
+
+  const sensEl = document.getElementById('settingsSensitivePatterns');
+  if (sensEl) {
+    if (!settingsDraft.sensitiveFiles) settingsDraft.sensitiveFiles = {};
+    settingsDraft.sensitiveFiles.patterns = sensEl.value.split('\n').map(s => s.trim()).filter(Boolean);
+  }
+
+  const retDays = document.getElementById('settingsRetentionDays');
+  if (retDays) {
+    if (!settingsDraft.retention) settingsDraft.retention = {};
+    settingsDraft.retention.maxAgeDays = parseInt(retDays.value) || 90;
+  }
+
+  const retSize = document.getElementById('settingsRetentionSize');
+  if (retSize) {
+    if (!settingsDraft.retention) settingsDraft.retention = {};
+    settingsDraft.retention.maxDbSizeMB = parseInt(retSize.value) || 500;
+  }
+
+  const portEl = document.getElementById('settingsPort');
+  if (portEl) {
+    if (!settingsDraft.dashboard) settingsDraft.dashboard = {};
+    settingsDraft.dashboard.port = parseInt(portEl.value) || 3847;
+  }
+
+  const res = await fetch('/api/settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settingsDraft),
+  });
+  const data = await res.json();
+  if (data.ok) {
+    showToast('info', 'Settings saved');
+    const label = document.getElementById('settingsDirtyLabel');
+    if (label) label.style.display = 'none';
+  } else {
+    showToast('danger', 'Failed to save settings');
+  }
 }
 
 // ── Live polling (every 5s when on any page) ──

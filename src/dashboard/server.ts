@@ -2,7 +2,7 @@ import express from 'express';
 import * as path from 'path';
 import * as fs from 'fs';
 import { exec } from 'child_process';
-import { Config } from '../config';
+import { Config, saveConfig, mergeConfig, getConfigPath } from '../config';
 import {
   getAllSessions, getSession, getSessionEvents, getRecentEvents,
   getAlerts, acknowledgeAlert, acknowledgeAllAlerts, getMemoryOps,
@@ -250,6 +250,27 @@ export function createDashboardServer(config: Config): express.Express {
     const cmd = process.platform === 'win32' ? `explorer "${dir}"` : process.platform === 'darwin' ? `open "${dir}"` : `xdg-open "${dir}"`;
     exec(cmd);
     res.json({ ok: true });
+  });
+
+  // ── Settings ──
+
+  app.get('/api/settings', (_req, res) => {
+    res.json(config);
+  });
+
+  app.put('/api/settings', (req, res) => {
+    const updates = req.body;
+    if (!updates || typeof updates !== 'object') return res.status(400).json({ error: 'Invalid settings' });
+    const merged = mergeConfig({ ...config, ...updates });
+    // Apply to running config
+    Object.assign(config, merged);
+    try {
+      saveConfig(merged);
+      broadcastSSE('settings-updated', {});
+      res.json({ ok: true, config: merged });
+    } catch (err: unknown) {
+      res.status(500).json({ error: 'Failed to save config', details: String(err) });
+    }
   });
 
   // Fallback — serve index.html for SPA routes

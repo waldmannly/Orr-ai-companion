@@ -1,7 +1,7 @@
 import { Config, loadConfig } from '../config';
 import { LogTailer } from './log-tailer';
 import { SessionParserState } from '../parser';
-import { classifyRisk, extractMemoryOp } from '../risk/classifier';
+import { classifyRiskWithReasons, extractMemoryOp } from '../risk/classifier';
 import { evaluateAlerts, persistAlerts } from '../alerts/engine';
 import { initDb, upsertSession, insertEvent, insertMemoryOp, getSession, markSessionEnded, enforceRetention, insertAlert, getRecentSessionAlertBurst } from '../storage/db';
 import { SessionInfo } from '../parser/event-types';
@@ -131,8 +131,10 @@ export class Watcher {
     // Skip turn_start/turn_end for storage (too noisy)
     if (event.event_type === 'turn_start' || event.event_type === 'turn_end') return;
 
-    // Classify risk
-    event.risk_level = classifyRisk(event, this.config);
+    // Classify risk with structured reasons
+    const riskResult = classifyRiskWithReasons(event, this.config);
+    event.risk_level = riskResult.level;
+    event.risk_signals = riskResult.signals.length > 0 ? riskResult.signals : null;
 
     // Store event
     const eventId = insertEvent(event);

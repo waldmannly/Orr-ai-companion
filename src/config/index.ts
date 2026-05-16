@@ -1,6 +1,11 @@
 import * as path from 'path';
 import * as fs from 'fs';
 
+export interface AlertRuleConfig {
+  enabled: boolean;
+  minSeverity: 'watch' | 'warn' | 'danger';
+}
+
 export interface Config {
   watchPaths: string[];
   sensitiveFiles: {
@@ -11,6 +16,22 @@ export interface Config {
   alerts: {
     desktopNotifications: boolean;
     minSeverity: string;
+  };
+  alertRules: {
+    destructive_commands: AlertRuleConfig;
+    sensitive_files: AlertRuleConfig;
+    memory_operations: AlertRuleConfig;
+    memory_injection: AlertRuleConfig;
+    deployment: AlertRuleConfig;
+    ssh_remote: AlertRuleConfig;
+    data_exfiltration: AlertRuleConfig;
+    suspicious_download: AlertRuleConfig;
+    suspicious_fetch: AlertRuleConfig;
+    network_access: AlertRuleConfig;
+    force_push: AlertRuleConfig;
+    file_operations: AlertRuleConfig;
+    git_operations: AlertRuleConfig;
+    subagent_spawn: AlertRuleConfig;
   };
   dashboard: {
     port: number;
@@ -28,6 +49,8 @@ export interface Config {
   }>;
 }
 
+const DEFAULT_RULE: AlertRuleConfig = { enabled: true, minSeverity: 'warn' };
+
 const DEFAULTS: Config = {
   watchPaths: [],
   sensitiveFiles: {
@@ -40,20 +63,64 @@ const DEFAULTS: Config = {
     'Remove-Item -Recurse -Force', 'rmdir /s /q',
   ],
   alerts: { desktopNotifications: false, minSeverity: 'warn' },
+  alertRules: {
+    destructive_commands: { enabled: true, minSeverity: 'warn' },
+    sensitive_files: { enabled: true, minSeverity: 'warn' },
+    memory_operations: { enabled: true, minSeverity: 'warn' },
+    memory_injection: { enabled: true, minSeverity: 'warn' },
+    deployment: { enabled: true, minSeverity: 'warn' },
+    ssh_remote: { enabled: true, minSeverity: 'warn' },
+    data_exfiltration: { enabled: true, minSeverity: 'warn' },
+    suspicious_download: { enabled: true, minSeverity: 'warn' },
+    suspicious_fetch: { enabled: true, minSeverity: 'warn' },
+    network_access: { enabled: true, minSeverity: 'watch' },
+    force_push: { enabled: true, minSeverity: 'warn' },
+    file_operations: { enabled: false, minSeverity: 'watch' },
+    git_operations: { enabled: false, minSeverity: 'watch' },
+    subagent_spawn: { enabled: false, minSeverity: 'watch' },
+  },
   dashboard: { port: 3847, host: '127.0.0.1' },
   retention: { maxAgeDays: 90, maxDbSizeMB: 500 },
   customProviders: [],
 };
 
+let configPath = '';
+
+export function getConfigPath(): string {
+  return configPath;
+}
+
 export function loadConfig(): Config {
-  const configPath = path.join(process.cwd(), 'config.json');
+  configPath = path.join(process.cwd(), 'config.json');
   if (fs.existsSync(configPath)) {
     try {
       const raw = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-      return { ...DEFAULTS, ...raw, sensitiveFiles: { ...DEFAULTS.sensitiveFiles, ...raw.sensitiveFiles }, alerts: { ...DEFAULTS.alerts, ...raw.alerts }, dashboard: { ...DEFAULTS.dashboard, ...raw.dashboard }, retention: { ...DEFAULTS.retention, ...raw.retention } };
+      return mergeConfig(raw);
     } catch {
       console.warn('[config] Failed to parse config.json, using defaults');
     }
   }
-  return DEFAULTS;
+  return { ...DEFAULTS };
+}
+
+export function mergeConfig(raw: Record<string, unknown>): Config {
+  return {
+    ...DEFAULTS,
+    ...raw,
+    sensitiveFiles: { ...DEFAULTS.sensitiveFiles, ...(raw.sensitiveFiles as Record<string, unknown> || {}) },
+    alerts: { ...DEFAULTS.alerts, ...(raw.alerts as Record<string, unknown> || {}) },
+    alertRules: {
+      ...DEFAULTS.alertRules,
+      ...(raw.alertRules ? Object.fromEntries(
+        Object.entries(raw.alertRules as Record<string, unknown>).map(([k, v]) => [k, { ...DEFAULT_RULE, ...(v as Record<string, unknown>) }])
+      ) : {}),
+    },
+    dashboard: { ...DEFAULTS.dashboard, ...(raw.dashboard as Record<string, unknown> || {}) },
+    retention: { ...DEFAULTS.retention, ...(raw.retention as Record<string, unknown> || {}) },
+  } as Config;
+}
+
+export function saveConfig(config: Config): void {
+  const p = configPath || path.join(process.cwd(), 'config.json');
+  fs.writeFileSync(p, JSON.stringify(config, null, 2), 'utf-8');
 }

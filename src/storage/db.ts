@@ -97,6 +97,12 @@ function migrate() {
   } catch {
     db.exec(`ALTER TABLE sessions ADD COLUMN source_tool TEXT NOT NULL DEFAULT 'vscode-copilot'`);
   }
+  // Additive: risk_signals column for structured risk explanations
+  try {
+    db.prepare("SELECT risk_signals FROM events LIMIT 0").run();
+  } catch {
+    db.exec(`ALTER TABLE events ADD COLUMN risk_signals TEXT`);
+  }
 }
 
 // ── Retention cleanup ──
@@ -138,13 +144,14 @@ export function getAllSessions(limit = 50): SessionInfo[] {
 
 export function insertEvent(event: TrackerEvent): number {
   const stmt = db.prepare(`
-    INSERT INTO events (session_id, timestamp, agent_id, parent_agent_id, event_type, tool_name, risk_level, summary, file_paths, command, parameters, duration_ms, raw_log, source_tool)
-    VALUES (@session_id, @timestamp, @agent_id, @parent_agent_id, @event_type, @tool_name, @risk_level, @summary, @file_paths, @command, @parameters, @duration_ms, @raw_log, @source_tool)
+    INSERT INTO events (session_id, timestamp, agent_id, parent_agent_id, event_type, tool_name, risk_level, summary, file_paths, command, parameters, duration_ms, raw_log, source_tool, risk_signals)
+    VALUES (@session_id, @timestamp, @agent_id, @parent_agent_id, @event_type, @tool_name, @risk_level, @summary, @file_paths, @command, @parameters, @duration_ms, @raw_log, @source_tool, @risk_signals)
   `);
   const result = stmt.run({
     ...event,
     file_paths: JSON.stringify(event.file_paths),
     parameters: event.parameters ? JSON.stringify(event.parameters) : null,
+    risk_signals: (event as any).risk_signals ? JSON.stringify((event as any).risk_signals) : null,
   });
   return Number(result.lastInsertRowid);
 }
@@ -170,6 +177,7 @@ function hydrateEvent(row: Record<string, unknown>): TrackerEvent {
     ...row,
     file_paths: JSON.parse((row.file_paths as string) || '[]'),
     parameters: row.parameters ? JSON.parse(row.parameters as string) : null,
+    risk_signals: row.risk_signals ? JSON.parse(row.risk_signals as string) : null,
   } as unknown as TrackerEvent;
 }
 

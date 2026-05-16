@@ -30,6 +30,8 @@ export interface TrackerEvent {
   raw_log: string;
   /** Which AI tool produced this event (e.g. 'vscode-copilot', 'claude-code') */
   source_tool: string;
+  /** Structured risk explanation signals — why this was flagged */
+  risk_signals?: Array<{ rule: string; level: RiskLevel; reason: string; danger: string }> | null;
 }
 
 export interface SessionInfo {
