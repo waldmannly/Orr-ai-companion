@@ -126,7 +126,8 @@ export function getProjectPrompts(projectName: string, limit = 100): StoredPromp
 /** Search prompts by content */
 export function searchPrompts(query: string, limit = 50): StoredPrompt[] {
   const db = getDb();
-  const escaped = query.replace(/[%_]/g, c => '\\' + c);
+  // SECURITY: Escape backslashes first, then LIKE wildcards
+  const escaped = query.replace(/\\/g, '\\\\').replace(/[%_]/g, c => '\\' + c);
   return db.prepare(
     "SELECT * FROM prompts WHERE content LIKE ? ESCAPE '\\' ORDER BY timestamp DESC LIMIT ?"
   ).all(`%${escaped}%`, limit) as StoredPrompt[];
@@ -192,7 +193,8 @@ export function generateCrashRecovery(sessionId: string, recentCount = 5): Crash
   for (const row of fileRows) {
     try {
       const paths = JSON.parse(row.file_paths);
-      if (Array.isArray(paths)) filesTouched.push(...paths);
+      // SECURITY: Validate array contains only strings
+      if (Array.isArray(paths)) filesTouched.push(...paths.filter((p: unknown) => typeof p === 'string'));
     } catch {}
   }
   const uniqueFiles = [...new Set(filesTouched)].slice(0, 30);

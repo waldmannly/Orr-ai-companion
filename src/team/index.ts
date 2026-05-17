@@ -103,23 +103,31 @@ export function createUser(name: string, role: 'admin' | 'viewer' | 'operator' =
   return { user: getUser(id)!, apiKey };
 }
 
-/** Authenticate by API key. Returns the user or null. */
+/** Authenticate by API key. Returns the user or null.
+ * SECURITY: Uses constant-time comparison to prevent timing attacks.
+ */
 export function authenticateByKey(apiKey: string): TeamUser | null {
   const keyHash = hashKey(apiKey);
-  const row = getDb().prepare(
-    'SELECT * FROM team_users WHERE api_key_hash = ? AND active = 1'
-  ).get(keyHash) as any;
-  if (!row) {
-    // Constant-time: perform a dummy write so failure path takes similar time
-    getDb().prepare('SELECT 1').get();
-    return null;
+  const keyBuf = Buffer.from(keyHash, 'hex');
+  // Fetch all active users and compare in constant time to prevent timing-based enumeration
+  const rows = getDb().prepare(
+    'SELECT * FROM team_users WHERE active = 1'
+  ).all() as Array<Record<string, unknown>>;
+  let match: Record<string, unknown> | null = null;
+  for (const row of rows) {
+    const storedBuf = Buffer.from(row.api_key_hash as string, 'hex');
+    if (keyBuf.length === storedBuf.length && crypto.timingSafeEqual(keyBuf, storedBuf)) {
+      match = row;
+    }
+    // Continue iterating even after match to ensure constant time
   }
+  if (!match) return null;
 
   // Update last_seen
   getDb().prepare('UPDATE team_users SET last_seen_at = ? WHERE id = ?')
-    .run(new Date().toISOString(), row.id);
+    .run(new Date().toISOString(), match.id);
 
-  return row as TeamUser;
+  return match as unknown as TeamUser;
 }
 
 /** Get user by ID */
@@ -158,6 +166,11 @@ export function createSharedRule(params: {
   severity?: string;
   created_by: string;
 }): SharedRule {
+  // SECURITY: Validate regex patterns before storing to prevent ReDoS
+  if (params.is_regex) {
+    if (params.pattern.length > 500) throw new Error('Regex pattern too long (max 500 chars)');
+    try { new RegExp(params.pattern); } catch { throw new Error('Invalid regex pattern'); }
+  }
   const now = new Date().toISOString();
   const info = getDb().prepare(`
     INSERT INTO shared_rules (name, description, pattern, is_regex, severity, created_by, created_at)

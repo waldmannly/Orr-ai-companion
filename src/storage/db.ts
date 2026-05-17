@@ -529,9 +529,15 @@ export function getRecentEvents(limit = 50): TrackerEvent[] {
 }
 
 function hydrateEvent(row: Record<string, unknown>): TrackerEvent {
+  // SECURITY: Validate parsed JSON arrays contain only expected types
+  let filePaths: string[] = [];
+  try {
+    const parsed = JSON.parse((row.file_paths as string) || '[]');
+    if (Array.isArray(parsed)) filePaths = parsed.filter((p: unknown) => typeof p === 'string');
+  } catch { /* malformed JSON — default to empty */ }
   return {
     ...row,
-    file_paths: JSON.parse((row.file_paths as string) || '[]'),
+    file_paths: filePaths,
     parameters: row.parameters ? JSON.parse(row.parameters as string) : null,
     risk_signals: row.risk_signals ? JSON.parse(row.risk_signals as string) : null,
   } as unknown as TrackerEvent;
@@ -907,7 +913,13 @@ export function getEventsFiltered(opts: {
   if (opts.endDate) { sql += ' AND timestamp < ?'; params.push(opts.endDate); }
   if (opts.riskLevel) { sql += ' AND risk_level = ?'; params.push(opts.riskLevel); }
   if (opts.eventType) { sql += ' AND event_type = ?'; params.push(opts.eventType); }
-  if (opts.search) { const like = `%${opts.search}%`; sql += ' AND (summary LIKE ? OR command LIKE ? OR file_paths LIKE ?)'; params.push(like, like, like); }
+  if (opts.search) {
+    // SECURITY: Escape LIKE wildcards and backslashes to prevent search injection
+    const safeSearch = opts.search.replace(/\\/g, '\\\\').replace(/[%_]/g, c => '\\' + c);
+    const like = `%${safeSearch}%`;
+    sql += " AND (summary LIKE ? ESCAPE '\\' OR command LIKE ? ESCAPE '\\' OR file_paths LIKE ? ESCAPE '\\')";
+    params.push(like, like, like);
+  }
   sql += ' ORDER BY timestamp DESC LIMIT ? OFFSET ?';
   params.push(limit, offset);
   return (db.prepare(sql).all(...params) as Array<Record<string, unknown>>).map(hydrateEvent);

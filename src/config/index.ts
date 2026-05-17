@@ -188,13 +188,18 @@ export function loadConfig(): Config {
 }
 
 /**
- * SECURITY: Strip prototype pollution keys from user-supplied objects.
+ * SECURITY: Recursively strip prototype pollution keys from user-supplied objects.
  */
 function sanitizeKeys(obj: Record<string, unknown>): Record<string, unknown> {
   const clean: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(obj)) {
     if (k === '__proto__' || k === 'constructor' || k === 'prototype') continue;
-    clean[k] = v;
+    // Recursively sanitize nested objects (but not arrays — arrays are value types here)
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      clean[k] = sanitizeKeys(v as Record<string, unknown>);
+    } else {
+      clean[k] = v;
+    }
   }
   return clean;
 }

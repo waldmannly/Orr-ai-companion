@@ -184,8 +184,8 @@ function checkUrlAgainstAllowlist(url: string, allowlist: string[], isBlocking: 
 
 function extractUrlsFromCommand(cmd: string): string[] {
   const urls: string[] = [];
-  // Match URLs in curl/wget/fetch/Invoke-WebRequest commands
-  const urlRegex = /https?:\/\/[^\s'")\]}>]+/gi;
+  // SECURITY: Bounded URL regex to prevent ReDoS — limit match length with {1,2048}
+  const urlRegex = /https?:\/\/[^\s'")\]}>]{1,2048}/gi;
   if (/\b(curl|wget|fetch|Invoke-WebRequest|iwr|http)\b/i.test(cmd)) {
     const matches = cmd.match(urlRegex);
     if (matches) urls.push(...matches);

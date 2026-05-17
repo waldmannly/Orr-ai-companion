@@ -105,6 +105,9 @@ function isPathAllowed(resolved: string, config: Config): boolean {
 export function createDashboardServer(config: Config): express.Express {
   const app = express();
   app.use(express.json({ limit: '100kb' }));
+  app.use(express.urlencoded({ extended: false, limit: '100kb' }));
+  // SECURITY: Disable Express fingerprinting
+  app.disable('x-powered-by');
 
   /** Clamp a query param to a safe integer range */
   function clampInt(raw: string | undefined, defaultVal: number, max = 5000): number {
@@ -123,8 +126,14 @@ export function createDashboardServer(config: Config): express.Express {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'no-referrer');
-    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'");
+    // CSP: unsafe-inline required for single-file SPA on localhost; connect-src locked to self only
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; form-action 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'");
     res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    res.setHeader('X-DNS-Prefetch-Control', 'off');
+    res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
+    // CORS: restrict to same-origin only (localhost)
+    res.setHeader('Access-Control-Allow-Origin', 'http://127.0.0.1:3847');
+    res.setHeader('Vary', 'Origin');
     next();
   });
 
@@ -257,8 +266,8 @@ export function createDashboardServer(config: Config): express.Express {
       riskLevel: qstr(req.query.riskLevel),
       eventType: qstr(req.query.eventType),
       search: qstr(req.query.search),
-      limit: req.query.limit ? Number(req.query.limit) : undefined,
-      offset: req.query.offset ? Number(req.query.offset) : undefined,
+      limit: req.query.limit ? clampInt(req.query.limit as string, 5000) : undefined,
+      offset: req.query.offset ? Math.min(Math.max(parseInt(req.query.offset as string) || 0, 0), 1_000_000) : undefined,
     }));
   });
 
@@ -363,18 +372,22 @@ export function createDashboardServer(config: Config): express.Express {
     // /memories/repo/X.md → .github/copilot-memory/X.md (in each workspace)
     if (virtualPath.startsWith('/memories/repo/')) {
       const relative = virtualPath.replace('/memories/repo/', '');
-      // SECURITY: Block path traversal
-      if (relative.includes('..') || relative.startsWith('/') || relative.startsWith('\\')) return null;
+      // SECURITY: Block path traversal — normalize and verify containment
+      if (!relative || /[\x00-\x1f]/.test(relative)) return null;
       // Check known workspaces from sessions
       const sessions = getAllSessions(100);
       for (const s of sessions) {
         if (!s.workspace) continue;
-        const candidate = path.join(s.workspace, '.github', 'copilot-memory', relative);
+        const base = path.resolve(s.workspace, '.github', 'copilot-memory');
+        const candidate = path.resolve(base, relative);
+        // Must be inside base after normalization
+        if (!candidate.startsWith(base + path.sep) && candidate !== base) continue;
         if (fs.existsSync(candidate)) return candidate;
       }
       // Also check cwd
-      const cwdCandidate = path.join(process.cwd(), '.github', 'copilot-memory', relative);
-      if (fs.existsSync(cwdCandidate)) return cwdCandidate;
+      const cwdBase = path.resolve(process.cwd(), '.github', 'copilot-memory');
+      const cwdCandidate = path.resolve(cwdBase, relative);
+      if ((cwdCandidate.startsWith(cwdBase + path.sep) || cwdCandidate === cwdBase) && fs.existsSync(cwdCandidate)) return cwdCandidate;
       return null;
     }
 
@@ -385,16 +398,17 @@ export function createDashboardServer(config: Config): express.Express {
     const userHome = process.env.USERPROFILE || process.env.HOME || '';
     const appData = process.env.APPDATA || path.join(userHome, 'AppData', 'Roaming');
     const relative = virtualPath.replace('/memories/', '');
-    // SECURITY: Block path traversal
-    if (relative.includes('..') || relative.startsWith('/') || relative.startsWith('\\')) return null;
+    // SECURITY: Block path traversal — normalize and verify containment
+    if (!relative || /[\x00-\x1f]/.test(relative)) return null;
 
     // VS Code stores user memories in globalStorage
-    const candidates = [
-      path.join(appData, 'Code', 'User', 'memories', relative),
-      path.join(appData, 'Code', 'User', 'globalStorage', 'github.copilot-chat', 'memories', relative),
+    const bases = [
+      path.resolve(appData, 'Code', 'User', 'memories'),
+      path.resolve(appData, 'Code', 'User', 'globalStorage', 'github.copilot-chat', 'memories'),
     ];
-    for (const c of candidates) {
-      if (fs.existsSync(c)) return c;
+    for (const base of bases) {
+      const candidate = path.resolve(base, relative);
+      if ((candidate.startsWith(base + path.sep) || candidate === base) && fs.existsSync(candidate)) return candidate;
     }
     return null;
   }
@@ -404,7 +418,7 @@ export function createDashboardServer(config: Config): express.Express {
     const memPath = req.query.path as string;
     if (!memPath) return res.status(400).json({ error: 'Missing path' });
     const resolved = resolveMemoryPath(memPath);
-    if (!resolved) return res.status(404).json({ error: 'Memory file not found on disk', virtual_path: memPath, hint: memPath.startsWith('/memories/session/') ? 'Session memory is ephemeral and not persisted to disk' : 'Could not locate the physical file — it may have been deleted or the workspace is not accessible' });
+    if (!resolved) return res.status(404).json({ error: 'Memory file not found on disk', hint: memPath.startsWith('/memories/session/') ? 'Session memory is ephemeral and not persisted to disk' : 'Could not locate the physical file' });
     // SECURITY: Don't expose real filesystem path — only confirm resolution succeeded
     res.json({ virtual_path: memPath, resolved: true });
   });
@@ -461,7 +475,8 @@ export function createDashboardServer(config: Config): express.Express {
     // Try VS Code first, fall back to OS default — no shell to prevent injection
     execFile('code', ['--goto', resolved], (err) => {
       if (err) {
-        if (process.platform === 'win32') execFile('cmd', ['/c', 'start', '""', resolved], () => {});
+        // SECURITY: Use explorer.exe on Windows instead of cmd /c start (which interprets shell metacharacters)
+        if (process.platform === 'win32') execFile('explorer', [resolved], () => {});
         else if (process.platform === 'darwin') execFile('open', [resolved], () => {});
         else execFile('xdg-open', [resolved], () => {});
       }
@@ -580,7 +595,9 @@ export function createDashboardServer(config: Config): express.Express {
   });
 
   app.get('/api/costs/estimate', (req, res) => {
-    const tokens = Number(req.query.tokens) || 0;
+    const raw = parseInt(req.query.tokens as string);
+    // SECURITY: Clamp to sane range to prevent DoS via extreme values
+    const tokens = Number.isFinite(raw) ? Math.min(Math.max(raw, 0), 100_000_000) : 0;
     const provider = (req.query.provider as string) || 'vscode-copilot';
     res.json(estimateCost(tokens, provider, config));
   });
@@ -840,7 +857,9 @@ export function createDashboardServer(config: Config): express.Express {
 
   app.post('/api/sessions/:id/branch', (req, res) => {
     const { branch } = req.body;
-    if (!branch) return res.status(400).json({ error: 'branch required' });
+    if (!branch || typeof branch !== 'string') return res.status(400).json({ error: 'branch required' });
+    // SECURITY: Validate branch name — length + safe characters only (git ref format)
+    if (branch.length > 255 || !/^[\w.\/\-]+$/.test(branch)) return res.status(400).json({ error: 'Invalid branch name' });
     setSessionBranch(req.params.id, branch);
     res.json({ ok: true });
   });
@@ -1145,7 +1164,9 @@ export function createDashboardServer(config: Config): express.Express {
 
   app.put('/api/sessions/:id/task-group', (req, res) => {
     const { task_group } = req.body || {};
-    if (!task_group) return res.status(400).json({ error: 'task_group required' });
+    if (!task_group || typeof task_group !== 'string') return res.status(400).json({ error: 'task_group required' });
+    // SECURITY: Validate task group name
+    if (task_group.length > 255) return res.status(400).json({ error: 'task_group too long' });
     setSessionTaskGroup(req.params.id, task_group);
     res.json({ ok: true });
   });
