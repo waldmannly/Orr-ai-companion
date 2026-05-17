@@ -32,6 +32,7 @@ export function runCli(args: string[]) {
     case 'config': return cliConfig(rest);
     case 'rules': return cliRules(rest);
     case 'autostart': return cliAutoStart(rest);
+    case 'compact': return cliCompact();
     case 'help': case '--help': case '-h': return cliHelp();
     case 'version': case '--version': case '-v':
       console.log(require('../package.json').version);
@@ -57,6 +58,7 @@ function cliHelp() {
     sessions           List recent sessions
     config [key=val]   Show or update configuration
     rules <subcommand> Manage community detection rule packs
+    compact            Compact the database (VACUUM + WAL checkpoint)
     help               Show this help message
 
   Export options:
@@ -327,6 +329,18 @@ function cliAutoStart(args: string[]) {
     process.exit(1);
   }
   setupAutoStart(action);
+}
+
+function cliCompact() {
+  const { initDb, vacuumDb } = require('./storage/db');
+  console.log('  Compacting database...');
+  initDb();
+  const { before, after } = vacuumDb();
+  const savedMB = ((before - after) / 1048576).toFixed(1);
+  console.log(`  Before: ${(before / 1048576).toFixed(1)} MB`);
+  console.log(`  After:  ${(after / 1048576).toFixed(1)} MB`);
+  console.log(`  Saved:  ${savedMB} MB`);
+  console.log('  ✓ Done');
 }
 
 // ── HTTP Helpers ──

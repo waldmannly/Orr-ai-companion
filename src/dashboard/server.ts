@@ -14,6 +14,7 @@ import {
   getGuardrailViolations, getSessionsByBranch, getBranchSummary,
   getActiveSessionStatus, getFileActivity, setSessionBranch,
   setSessionTaskGroup, getLinkedSessions, getTaskGroups, getBranchActivitySummary,
+  vacuumDb,
 } from '../storage/db';
 import { testWebhook } from '../notifications';
 import { getAllTrustScores, getTrustScore, getProviderComparison } from '../trust';
@@ -1044,6 +1045,24 @@ export function createDashboardServer(config: Config): express.Express {
     }
     watcher.killSession(sessionId, reason);
     res.json({ ok: true, session_id: sessionId, reason });
+  });
+
+  // ── Database Maintenance ──
+
+  app.post('/api/db/compact', (_req, res) => {
+    try {
+      const result = vacuumDb();
+      const savedMB = ((result.before - result.after) / 1048576).toFixed(1);
+      res.json({
+        ok: true,
+        before: result.before,
+        after: result.after,
+        saved: result.before - result.after,
+        message: `Compacted: ${(result.before / 1048576).toFixed(1)} MB → ${(result.after / 1048576).toFixed(1)} MB (saved ${savedMB} MB)`,
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
   });
 
   // ── Policy Engine ──

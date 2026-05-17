@@ -421,6 +421,17 @@ function migrate() {
   `);
 }
 
+// ── Storage maintenance ──
+
+export function vacuumDb(): { before: number; after: number } {
+  const dbPath = db.name;
+  const before = fs.statSync(dbPath).size;
+  db.pragma('wal_checkpoint(TRUNCATE)');
+  db.exec('VACUUM');
+  const after = fs.statSync(dbPath).size;
+  return { before, after };
+}
+
 // ── Retention cleanup ──
 
 export function enforceRetention(maxAgeDays: number) {

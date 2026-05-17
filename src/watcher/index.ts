@@ -3,7 +3,7 @@ import { LogTailer } from './log-tailer';
 import { SessionParserState } from '../parser';
 import { classifyRiskWithReasons, extractMemoryOp } from '../risk/classifier';
 import { evaluateAlerts, persistAlerts } from '../alerts/engine';
-import { initDb, upsertSession, insertEvent, insertMemoryOp, getSession, markSessionEnded, enforceRetention, insertAlert, getRecentSessionAlertBurst, upsertBaseline, getBaseline, insertGuardrailViolation, setSessionBranch, getTailerOffset, setTailerOffset, markSessionKilled, addDailyTokens, getDailyTokenTotal } from '../storage/db';
+import { initDb, upsertSession, insertEvent, insertMemoryOp, getSession, markSessionEnded, enforceRetention, insertAlert, getRecentSessionAlertBurst, upsertBaseline, getBaseline, insertGuardrailViolation, setSessionBranch, getTailerOffset, setTailerOffset, markSessionKilled, addDailyTokens, getDailyTokenTotal, vacuumDb } from '../storage/db';
 import { SessionInfo } from '../parser/event-types';
 import { LogProvider, TranscriptFile, getActiveProviders, createCustomProvider } from '../providers';
 import { broadcastSSE } from '../dashboard/server';
@@ -71,6 +71,17 @@ export class Watcher {
     if (this.config.retention.maxAgeDays > 0) {
       console.log(`[watcher] Enforcing retention: pruning events older than ${this.config.retention.maxAgeDays} days`);
       enforceRetention(this.config.retention.maxAgeDays);
+    }
+
+    // Compact database on startup (reclaims WAL/journal bloat)
+    try {
+      const { before, after } = vacuumDb();
+      const saved = before - after;
+      if (saved > 1024 * 1024) {
+        console.log(`[watcher] Database compacted: ${(before / 1048576).toFixed(1)} MB → ${(after / 1048576).toFixed(1)} MB (saved ${(saved / 1048576).toFixed(1)} MB)`);
+      }
+    } catch (e: any) {
+      console.warn(`[watcher] Vacuum skipped: ${e.message}`);
     }
 
     // Build provider list: built-in auto-detected + custom from config
