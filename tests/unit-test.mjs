@@ -1072,6 +1072,17 @@ test('BURSTY_ALERT_TYPES includes ssh_remote and suspicious_download', () => {
   assert.ok(BURSTY_ALERT_TYPES.has('suspicious_download'));
 });
 
+test('SSH dedup disabled via config dedup:false fires every time', () => {
+  clearAlertCooldowns();
+  const cfg = makeConfig({ alertRules: { ...makeConfig().alertRules, ssh_remote: { enabled: true, minSeverity: 'warn', dedup: false } } });
+  const ev1 = makeEvent({ event_type: 'terminal_command', command: 'ssh user@server1.com' });
+  const ev2 = makeEvent({ event_type: 'terminal_command', command: 'scp file.txt user@server2.com:/tmp/' });
+  const alerts1 = evaluateAlerts(ev1, cfg);
+  const alerts2 = evaluateAlerts(ev2, cfg);
+  assert.ok(alerts1.some(a => a.alert_type === 'ssh_remote'), 'first SSH fires');
+  assert.ok(alerts2.some(a => a.alert_type === 'ssh_remote'), 'second SSH also fires when dedup disabled');
+});
+
 // ══════════════════════════════════════════════════
 //  7. DATABASE — Storage Layer
 // ══════════════════════════════════════════════════

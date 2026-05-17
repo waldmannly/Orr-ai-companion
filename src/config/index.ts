@@ -5,6 +5,8 @@ import { GuardrailsConfig, GUARDRAILS_DEFAULTS } from '../guardrails';
 export interface AlertRuleConfig {
   enabled: boolean;
   minSeverity: 'watch' | 'warn' | 'danger';
+  /** When true, suppress duplicate alerts of this type within a 30-min window per session. Default: true for bursty rules. */
+  dedup?: boolean;
 }
 
 export interface WebhookConfig {
@@ -103,9 +105,9 @@ const DEFAULTS: Config = {
     memory_operations: { enabled: false, minSeverity: 'warn' },
     memory_injection: { enabled: true, minSeverity: 'warn' },
     deployment: { enabled: true, minSeverity: 'danger' },
-    ssh_remote: { enabled: true, minSeverity: 'danger' },
+    ssh_remote: { enabled: true, minSeverity: 'danger', dedup: true },
     data_exfiltration: { enabled: true, minSeverity: 'warn' },
-    suspicious_download: { enabled: true, minSeverity: 'warn' },
+    suspicious_download: { enabled: true, minSeverity: 'warn', dedup: true },
     suspicious_fetch: { enabled: true, minSeverity: 'warn' },
     supply_chain: { enabled: true, minSeverity: 'warn' },
     network_access: { enabled: false, minSeverity: 'watch' },
