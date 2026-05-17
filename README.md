@@ -73,7 +73,11 @@ Open the dashboard URL in your browser. That's it.
 
 ## Configuration
 
-All configuration lives in `config.json` in the project root. The tracker works with zero configuration — every setting has sensible defaults.
+All configuration lives in `config.json` in the project root. The tracker works with zero configuration — every setting has sensible defaults. Copy the example to get started:
+
+```bash
+cp config.example.json config.json
+```
 
 ```json
 {
