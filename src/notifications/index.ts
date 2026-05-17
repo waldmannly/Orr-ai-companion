@@ -1,6 +1,34 @@
 import { Alert } from '../parser/event-types';
 import { loadConfig, type NotificationsConfig, type WebhookConfig } from '../config';
 
+// ── Webhook URL validation (SSRF prevention) ──
+
+/**
+ * SECURITY: Validate webhook URLs to prevent SSRF attacks.
+ * Only allows HTTPS URLs pointing to public internet addresses.
+ */
+export function isAllowedWebhookUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'https:') return false;
+    const host = parsed.hostname.toLowerCase();
+    // Block private/internal network addresses
+    if (host === 'localhost' || host === '[::1]') return false;
+    if (host.startsWith('127.')) return false;
+    if (host.startsWith('10.')) return false;
+    if (host.startsWith('192.168.')) return false;
+    if (host.startsWith('169.254.')) return false;  // Link-local / cloud metadata
+    if (host === '0.0.0.0' || host === '[::]') return false;
+    // Block 172.16.0.0/12 range
+    if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return false;
+    // Block common cloud metadata endpoints
+    if (host === 'metadata.google.internal') return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // ── Notification dispatch ──
 
 export async function dispatchAlertNotifications(alert: Alert): Promise<void> {
@@ -46,6 +74,10 @@ async function sendSlack(cfg: WebhookConfig, alert: Alert): Promise<void> {
   };
 
   try {
+    if (!isAllowedWebhookUrl(cfg.url)) {
+      console.warn('[notifications] Slack webhook blocked: URL failed SSRF validation');
+      return;
+    }
     const resp = await fetch(cfg.url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -72,6 +104,10 @@ async function sendWebhook(cfg: WebhookConfig, alert: Alert): Promise<void> {
   };
 
   try {
+    if (!isAllowedWebhookUrl(cfg.url)) {
+      console.warn('[notifications] Webhook blocked: URL failed SSRF validation');
+      return;
+    }
     const resp = await fetch(cfg.url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -122,6 +158,10 @@ async function sendTeams(cfg: WebhookConfig, alert: Alert): Promise<void> {
   };
 
   try {
+    if (!isAllowedWebhookUrl(cfg.url)) {
+      console.warn('[notifications] Teams webhook blocked: URL failed SSRF validation');
+      return;
+    }
     const resp = await fetch(cfg.url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

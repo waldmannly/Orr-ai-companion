@@ -11,8 +11,15 @@ import { PR_COMMENT_SIGNATURE, wrapComment } from './index';
 const GITHUB_API = 'https://api.github.com';
 
 function getToken(config: Config): string {
-  // Env var takes priority (avoids storing secrets in config.json)
-  return process.env.AL_TRACKER_PR_TOKEN || config.prBot.token;
+  // SECURITY: Always prefer env var — avoids storing secrets in config.json
+  // which is readable via API and written to disk
+  const envToken = process.env.AL_TRACKER_PR_TOKEN;
+  if (envToken) return envToken;
+  if (config.prBot.token) {
+    console.warn('[pr-bot] Using token from config.json — prefer AL_TRACKER_PR_TOKEN env var for security');
+    return config.prBot.token;
+  }
+  throw new Error('No GitHub token configured. Set AL_TRACKER_PR_TOKEN environment variable.');
 }
 
 function getHeaders(token: string): Record<string, string> {

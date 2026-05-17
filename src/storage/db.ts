@@ -12,7 +12,7 @@ export function getDb(): Database.Database {
 
 export function initDb(dbPath?: string): Database.Database {
   const p = dbPath || path.join(process.cwd(), 'data', 'tracker.db');
-  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.mkdirSync(path.dirname(p), { recursive: true, mode: 0o700 });
   db = new Database(p);
   db.pragma('journal_mode = WAL');
   db.pragma('synchronous = NORMAL');

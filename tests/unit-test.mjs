@@ -2722,7 +2722,9 @@ await testAsync('GET /unknown-route serves SPA fallback', async () => {
 // ── File Deep-Link API Tests ──
 
 // Create a temp file for testing
-const fileTestDir = fs.mkdtempSync(path.join(os.tmpdir(), 'al-file-test-'));
+// File read/open tests — use a file inside cwd (within allowlist for path security)
+const fileTestDir = path.join(process.cwd(), 'data', '_test-file-read');
+fs.mkdirSync(fileTestDir, { recursive: true });
 const tmpTestFile = path.join(fileTestDir, 'test-file.ts');
 fs.writeFileSync(tmpTestFile, 'const x = 1;\nconst y = 2;\nconsole.log(x + y);\n');
 
@@ -2740,19 +2742,36 @@ await testAsync('GET /api/file/read returns 400 for missing path', async () => {
   assert.equal(res.status, 400);
 });
 
-await testAsync('GET /api/file/read returns 404 for missing file', async () => {
-  const res = await fetch(`${BASE}/api/file/read?path=${encodeURIComponent('/nonexistent/file.txt')}`);
+await testAsync('GET /api/file/read blocks path outside allowed dirs', async () => {
+  const res = await fetch(`${BASE}/api/file/read?path=${encodeURIComponent('/etc/passwd')}`);
+  assert.equal(res.status, 403);
+  const data = await res.json();
+  assert.ok(data.error.includes('outside allowed'));
+});
+
+await testAsync('GET /api/file/read returns 404 for missing file in allowed dir', async () => {
+  const missingFile = path.join(process.cwd(), 'data', 'nonexistent-test-file.txt');
+  const res = await fetch(`${BASE}/api/file/read?path=${encodeURIComponent(missingFile)}`);
   assert.equal(res.status, 404);
 });
 
 // Skipped: POST /api/file/open success test — triggers OS-level `code` command
 
-await testAsync('POST /api/file/open returns 404 for missing file', async () => {
+await testAsync('POST /api/file/open returns 404 for missing file in allowed dir', async () => {
+  const missingFile = path.join(process.cwd(), 'data', 'nonexistent-open-test.txt');
+  const res = await fetch(`${BASE}/api/file/open`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: missingFile }),
+  });
+  assert.equal(res.status, 404);
+});
+
+await testAsync('POST /api/file/open blocks path outside allowed dirs', async () => {
   const res = await fetch(`${BASE}/api/file/open`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path: '/nonexistent/file.txt' }),
   });
-  assert.equal(res.status, 404);
+  assert.equal(res.status, 403);
 });
 
 await testAsync('POST /api/file/open returns 400 for missing path', async () => {
@@ -6835,6 +6854,65 @@ test('costEstimation config defaults to empty pricing', () => {
 });
 
 // ══════════════════════════════════════════════════
+//  39. Security Hardening
+// ══════════════════════════════════════════════════
+console.log('═══ 39. Security Hardening ═══');
+
+const { isAllowedWebhookUrl } = await import('../dist/notifications/index.js');
+
+test('mergeConfig strips __proto__ keys (prototype pollution)', () => {
+  const raw = { __proto__: { polluted: true }, retention: { maxAgeDays: 30 } };
+  const merged = mergeConfig(raw);
+  assert.strictEqual(({}).polluted, undefined, 'Object.prototype should not be polluted');
+  assert.strictEqual(merged.retention.maxAgeDays, 30);
+});
+
+test('mergeConfig strips constructor keys', () => {
+  const raw = { constructor: { bad: true }, retention: { maxDbSizeMB: 100 } };
+  const merged = mergeConfig(raw);
+  assert.strictEqual(merged.retention.maxDbSizeMB, 100);
+});
+
+test('isAllowedWebhookUrl accepts valid HTTPS URLs', () => {
+  assert.ok(isAllowedWebhookUrl('https://hooks.slack.com/services/T1/B1/xxx'));
+  assert.ok(isAllowedWebhookUrl('https://outlook.office.com/webhook/xxx'));
+  assert.ok(isAllowedWebhookUrl('https://example.com/webhook'));
+});
+
+test('isAllowedWebhookUrl blocks HTTP URLs', () => {
+  assert.strictEqual(isAllowedWebhookUrl('http://hooks.slack.com/services/T1/B1/xxx'), false);
+  assert.strictEqual(isAllowedWebhookUrl('http://example.com/webhook'), false);
+});
+
+test('isAllowedWebhookUrl blocks localhost', () => {
+  assert.strictEqual(isAllowedWebhookUrl('https://localhost/admin'), false);
+  assert.strictEqual(isAllowedWebhookUrl('https://127.0.0.1/admin'), false);
+  assert.strictEqual(isAllowedWebhookUrl('https://127.0.0.99:8080/admin'), false);
+});
+
+test('isAllowedWebhookUrl blocks private network ranges', () => {
+  assert.strictEqual(isAllowedWebhookUrl('https://10.0.0.1/internal'), false);
+  assert.strictEqual(isAllowedWebhookUrl('https://192.168.1.1/admin'), false);
+  assert.strictEqual(isAllowedWebhookUrl('https://172.16.0.1/admin'), false);
+  assert.strictEqual(isAllowedWebhookUrl('https://172.31.255.255/admin'), false);
+});
+
+test('isAllowedWebhookUrl blocks cloud metadata endpoints', () => {
+  assert.strictEqual(isAllowedWebhookUrl('https://169.254.169.254/latest/meta-data'), false);
+  assert.strictEqual(isAllowedWebhookUrl('https://metadata.google.internal/computeMetadata/v1'), false);
+});
+
+test('isAllowedWebhookUrl blocks invalid URLs', () => {
+  assert.strictEqual(isAllowedWebhookUrl('not-a-url'), false);
+  assert.strictEqual(isAllowedWebhookUrl(''), false);
+  assert.strictEqual(isAllowedWebhookUrl('ftp://example.com'), false);
+});
+
+test('isAllowedWebhookUrl blocks 0.0.0.0', () => {
+  assert.strictEqual(isAllowedWebhookUrl('https://0.0.0.0/admin'), false);
+});
+
+// ══════════════════════════════════════════════════
 console.log('');
 console.log('══════════════════════════════════════════════════');
 console.log(`  RESULTS: ${passed} passed, ${failed} failed`);
@@ -6849,6 +6927,7 @@ if (errors.length > 0) {
 
 // Cleanup
 try { fs.rmSync(tmpDir, { recursive: true }); } catch {}
+try { fs.rmSync(path.join(process.cwd(), 'data', '_test-file-read'), { recursive: true }); } catch {}
 try { fs.unlinkSync(path.join(process.cwd(), 'policy.json')); } catch {}
 
 process.exit(failed > 0 ? 1 : 0);

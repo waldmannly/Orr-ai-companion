@@ -187,34 +187,47 @@ export function loadConfig(): Config {
   return { ...DEFAULTS };
 }
 
+/**
+ * SECURITY: Strip prototype pollution keys from user-supplied objects.
+ */
+function sanitizeKeys(obj: Record<string, unknown>): Record<string, unknown> {
+  const clean: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (k === '__proto__' || k === 'constructor' || k === 'prototype') continue;
+    clean[k] = v;
+  }
+  return clean;
+}
+
 export function mergeConfig(raw: Record<string, unknown>): Config {
-  const rawNotif = (raw.notifications || {}) as Record<string, unknown>;
-  const rawGuardrails = (raw.guardrails || {}) as Record<string, unknown>;
+  const safe = sanitizeKeys(raw);
+  const rawNotif = sanitizeKeys((safe.notifications || {}) as Record<string, unknown>);
+  const rawGuardrails = sanitizeKeys((safe.guardrails || {}) as Record<string, unknown>);
   return {
     ...DEFAULTS,
-    ...raw,
-    sensitiveFiles: { ...DEFAULTS.sensitiveFiles, ...(raw.sensitiveFiles as Record<string, unknown> || {}) },
-    alerts: { ...DEFAULTS.alerts, ...(raw.alerts as Record<string, unknown> || {}) },
+    ...safe,
+    sensitiveFiles: { ...DEFAULTS.sensitiveFiles, ...sanitizeKeys((safe.sensitiveFiles as Record<string, unknown> || {})) },
+    alerts: { ...DEFAULTS.alerts, ...sanitizeKeys((safe.alerts as Record<string, unknown> || {})) },
     notifications: {
-      slack: { ...DEFAULTS.notifications.slack, ...(rawNotif.slack as Record<string, unknown> || {}) },
-      webhook: { ...DEFAULTS.notifications.webhook, ...(rawNotif.webhook as Record<string, unknown> || {}) },
-      desktop: { ...DEFAULTS.notifications.desktop, ...(rawNotif.desktop as Record<string, unknown> || {}) },
+      slack: { ...DEFAULTS.notifications.slack, ...sanitizeKeys((rawNotif.slack as Record<string, unknown> || {})) },
+      webhook: { ...DEFAULTS.notifications.webhook, ...sanitizeKeys((rawNotif.webhook as Record<string, unknown> || {})) },
+      desktop: { ...DEFAULTS.notifications.desktop, ...sanitizeKeys((rawNotif.desktop as Record<string, unknown> || {})) },
     },
     alertRules: {
       ...DEFAULTS.alertRules,
-      ...(raw.alertRules ? Object.fromEntries(
-        Object.entries(raw.alertRules as Record<string, unknown>).map(([k, v]) => [k, { ...DEFAULT_RULE, ...(v as Record<string, unknown>) }])
+      ...(safe.alertRules ? Object.fromEntries(
+        Object.entries(sanitizeKeys(safe.alertRules as Record<string, unknown>)).map(([k, v]) => [k, { ...DEFAULT_RULE, ...sanitizeKeys((v as Record<string, unknown>)) }])
       ) : {}),
     },
     guardrails: { ...GUARDRAILS_DEFAULTS, ...rawGuardrails },
-    dashboard: { ...DEFAULTS.dashboard, ...(raw.dashboard as Record<string, unknown> || {}) },
-    retention: { ...DEFAULTS.retention, ...(raw.retention as Record<string, unknown> || {}) },
-    prBot: { ...DEFAULTS.prBot, ...(raw.prBot as Record<string, unknown> || {}) },
-    costEstimation: { ...DEFAULTS.costEstimation, ...(raw.costEstimation as Record<string, unknown> || {}) },
+    dashboard: { ...DEFAULTS.dashboard, ...sanitizeKeys((safe.dashboard as Record<string, unknown> || {})) },
+    retention: { ...DEFAULTS.retention, ...sanitizeKeys((safe.retention as Record<string, unknown> || {})) },
+    prBot: { ...DEFAULTS.prBot, ...sanitizeKeys((safe.prBot as Record<string, unknown> || {})) },
+    costEstimation: { ...DEFAULTS.costEstimation, ...sanitizeKeys((safe.costEstimation as Record<string, unknown> || {})) },
   } as Config;
 }
 
 export function saveConfig(config: Config): void {
   const p = configPath || path.join(process.cwd(), 'config.json');
-  fs.writeFileSync(p, JSON.stringify(config, null, 2), 'utf-8');
+  fs.writeFileSync(p, JSON.stringify(config, null, 2), { encoding: 'utf-8', mode: 0o600 });
 }

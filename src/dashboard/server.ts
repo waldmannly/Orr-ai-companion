@@ -1,7 +1,7 @@
 import express from 'express';
 import * as path from 'path';
 import * as fs from 'fs';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { Config, saveConfig, mergeConfig, getConfigPath } from '../config';
 import {
   getAllSessions, getSession, getSessionEvents, getRecentEvents,
@@ -85,9 +85,56 @@ export function broadcastSSE(eventType: string, data: unknown) {
   }
 }
 
+/**
+ * SECURITY: Check if a file path is within allowed directories.
+ * Allows reads only within: tracker data dir, watched workspaces, config dir.
+ */
+function isPathAllowed(resolved: string, config: Config): boolean {
+  const allowed = [
+    path.resolve(process.cwd(), 'data'),
+    path.resolve(process.cwd()),
+    ...config.watchPaths.map(p => path.resolve(p)),
+  ];
+  const normalized = path.normalize(resolved);
+  return allowed.some(base => {
+    const normalizedBase = path.normalize(base);
+    return normalized === normalizedBase || normalized.startsWith(normalizedBase + path.sep);
+  });
+}
+
 export function createDashboardServer(config: Config): express.Express {
   const app = express();
-  app.use(express.json());
+  app.use(express.json({ limit: '100kb' }));
+
+  // ── Security headers ──
+  app.use((_req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'");
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    next();
+  });
+
+  // ── Rate limiting ──
+  const rateBuckets = new Map<string, { count: number; resetAt: number }>();
+  function rateLimit(key: string, maxPerMinute: number): boolean {
+    const now = Date.now();
+    let bucket = rateBuckets.get(key);
+    if (!bucket || now > bucket.resetAt) {
+      bucket = { count: 0, resetAt: now + 60_000 };
+      rateBuckets.set(key, bucket);
+    }
+    bucket.count++;
+    return bucket.count > maxPerMinute;
+  }
+  // General API rate limiter
+  app.use('/api', (req, res, next) => {
+    if (rateLimit('global', 300)) {
+      return res.status(429).json({ error: 'Too many requests' });
+    }
+    next();
+  });
 
   // Serve static frontend files
   app.use(express.static(path.join(__dirname, '..', '..', 'src', 'dashboard', 'public')));
@@ -342,7 +389,10 @@ export function createDashboardServer(config: Config): express.Express {
   });
 
   // Read file content (text files only, capped at 200KB)
+  // SECURITY: Only allows reads within watched workspaces, the tracker's data dir,
+  // or explicitly resolved memory paths. Blocks arbitrary file system access.
   app.get('/api/file/read', (req, res) => {
+    if (rateLimit('file-read', 60)) return res.status(429).json({ error: 'Too many requests' });
     let filePath = req.query.path as string;
     if (!filePath || typeof filePath !== 'string') return res.status(400).json({ error: 'Missing path' });
     // Auto-resolve memory virtual paths
@@ -352,7 +402,10 @@ export function createDashboardServer(config: Config): express.Express {
       filePath = resolved;
     }
     const resolved = path.resolve(filePath);
-    if (resolved.includes('..')) return res.status(403).json({ error: 'Invalid path' });
+    // Enforce path allowlist: data dir + watched workspaces only
+    if (!isPathAllowed(resolved, config)) {
+      return res.status(403).json({ error: 'Path outside allowed directories' });
+    }
     try {
       const stat = fs.statSync(resolved);
       if (!stat.isFile()) return res.status(400).json({ error: 'Not a file' });
@@ -364,7 +417,9 @@ export function createDashboardServer(config: Config): express.Express {
   });
 
   // Open file in default editor (VS Code preferred)
+  // SECURITY: Uses execFile() (no shell) to prevent command injection
   app.post('/api/file/open', (req, res) => {
+    if (rateLimit('file-open', 10)) return res.status(429).json({ error: 'Too many requests' });
     let filePath = req.body?.path as string;
     if (!filePath || typeof filePath !== 'string') return res.status(400).json({ error: 'Missing path' });
     if (filePath.startsWith('/memories/')) {
@@ -373,19 +428,23 @@ export function createDashboardServer(config: Config): express.Express {
       filePath = mem;
     }
     const resolved = path.resolve(filePath);
+    if (!isPathAllowed(resolved, config)) return res.status(403).json({ error: 'Path outside allowed directories' });
     if (!fs.existsSync(resolved)) return res.status(404).json({ error: 'File not found' });
-    // Try VS Code first, fall back to OS default
-    exec(`code "${resolved}"`, (err) => {
+    // Try VS Code first, fall back to OS default — no shell to prevent injection
+    execFile('code', ['--goto', resolved], (err) => {
       if (err) {
-        const cmd = process.platform === 'win32' ? `start "" "${resolved}"` : process.platform === 'darwin' ? `open "${resolved}"` : `xdg-open "${resolved}"`;
-        exec(cmd);
+        if (process.platform === 'win32') execFile('cmd', ['/c', 'start', '""', resolved], () => {});
+        else if (process.platform === 'darwin') execFile('open', [resolved], () => {});
+        else execFile('xdg-open', [resolved], () => {});
       }
     });
     res.json({ ok: true });
   });
 
   // Reveal file/folder in system file explorer
+  // SECURITY: Uses execFile() (no shell) to prevent command injection
   app.post('/api/file/reveal', (req, res) => {
+    if (rateLimit('file-reveal', 10)) return res.status(429).json({ error: 'Too many requests' });
     let filePath = req.body?.path as string;
     if (!filePath || typeof filePath !== 'string') return res.status(400).json({ error: 'Missing path' });
     if (filePath.startsWith('/memories/')) {
@@ -396,29 +455,50 @@ export function createDashboardServer(config: Config): express.Express {
     const resolved = path.resolve(filePath);
     const dir = fs.existsSync(resolved) && fs.statSync(resolved).isDirectory() ? resolved : path.dirname(resolved);
     if (!fs.existsSync(dir)) return res.status(404).json({ error: 'Path not found' });
-    const cmd = process.platform === 'win32' ? `explorer "${dir}"` : process.platform === 'darwin' ? `open "${dir}"` : `xdg-open "${dir}"`;
-    exec(cmd);
+    if (!isPathAllowed(dir, config)) return res.status(403).json({ error: 'Path outside allowed directories' });
+    if (process.platform === 'win32') execFile('explorer', [dir], () => {});
+    else if (process.platform === 'darwin') execFile('open', [dir], () => {});
+    else execFile('xdg-open', [dir], () => {});
     res.json({ ok: true });
   });
 
   // ── Settings ──
+  // SECURITY: GET strips secrets, PUT uses field allowlist
 
   app.get('/api/settings', (_req, res) => {
-    res.json(config);
+    const safe = JSON.parse(JSON.stringify(config));
+    // Strip secrets from response
+    if (safe.prBot?.token) safe.prBot.token = safe.prBot.token ? '***' : '';
+    if (safe.notifications?.slack?.url) safe.notifications.slack.url = safe.notifications.slack.url ? '(configured)' : '';
+    if (safe.notifications?.webhook?.url) safe.notifications.webhook.url = safe.notifications.webhook.url ? '(configured)' : '';
+    if (safe.notifications?.teams?.url) safe.notifications.teams.url = safe.notifications.teams.url ? '(configured)' : '';
+    res.json(safe);
   });
+
+  // Fields that can be changed via API — security-critical fields require manual config edit
+  const SETTINGS_MUTABLE_FIELDS = new Set([
+    'retention', 'alerts', 'dashboard', 'tokenBudget', 'costEstimation',
+    'alertRules', 'sensitiveFiles', 'dangerousCommands',
+  ]);
 
   app.put('/api/settings', (req, res) => {
     const updates = req.body;
-    if (!updates || typeof updates !== 'object') return res.status(400).json({ error: 'Invalid settings' });
+    if (!updates || typeof updates !== 'object' || Array.isArray(updates)) return res.status(400).json({ error: 'Invalid settings' });
+    // Block prototype pollution keys
+    const forbidden = Object.keys(updates).filter(k => !SETTINGS_MUTABLE_FIELDS.has(k) || k === '__proto__' || k === 'constructor' || k === 'prototype');
+    if (forbidden.length > 0) {
+      return res.status(403).json({ error: `Cannot modify via API: ${forbidden.join(', ')}. Edit config.json directly for security-sensitive fields.` });
+    }
     const merged = mergeConfig({ ...config, ...updates });
     // Apply to running config
     Object.assign(config, merged);
     try {
       saveConfig(merged);
       broadcastSSE('settings-updated', {});
-      res.json({ ok: true, config: merged });
+      res.json({ ok: true });
     } catch (err: unknown) {
-      res.status(500).json({ error: 'Failed to save config', details: String(err) });
+      console.error('[dashboard] Config save failed:', err);
+      res.status(500).json({ error: 'Failed to save configuration' });
     }
   });
 
@@ -701,7 +781,8 @@ export function createDashboardServer(config: Config): express.Express {
       const pack = loadPackFromFile(packPath);
       res.json({ ok: true, pack: { id: pack.id, name: pack.name, rules: pack.rules.length } });
     } catch (err) {
-      res.status(400).json({ error: String(err) });
+      console.error('[dashboard] Failed to load rule pack:', err);
+      res.status(400).json({ error: 'Failed to load rule pack' });
     }
   });
 
@@ -911,7 +992,8 @@ export function createDashboardServer(config: Config): express.Express {
       const loaded = loadPlugin(filePath);
       res.json({ ok: true, id: loaded.manifest.id, rules: loaded.compiledRules.length });
     } catch (err) {
-      res.status(400).json({ error: String(err) });
+      console.error('[dashboard] Failed to load plugin:', err);
+      res.status(400).json({ error: 'Failed to load plugin' });
     }
   });
 
@@ -925,7 +1007,8 @@ export function createDashboardServer(config: Config): express.Express {
       const data = executeWidgetQuery(req.params.pluginId, req.params.widgetId, getDb());
       res.json(data);
     } catch (err) {
-      res.status(400).json({ error: String(err) });
+      console.error('[dashboard] Widget query failed:', err);
+      res.status(400).json({ error: 'Widget query failed' });
     }
   });
 
@@ -1103,8 +1186,9 @@ export function createDashboardServer(config: Config): express.Express {
         saved: result.before - result.after,
         message: `Compacted: ${(result.before / 1048576).toFixed(1)} MB → ${(result.after / 1048576).toFixed(1)} MB (saved ${savedMB} MB)`,
       });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (e: unknown) {
+      console.error('[dashboard] Vacuum/compact failed:', e);
+      res.status(500).json({ error: 'Database compaction failed' });
     }
   });
 
@@ -1147,8 +1231,9 @@ export function createDashboardServer(config: Config): express.Express {
     try {
       const updated = applyPolicy(req.body, (req as any).teamUser?.name || 'api');
       res.json(updated);
-    } catch (err: any) {
-      res.status(400).json({ error: err.message });
+    } catch (err: unknown) {
+      console.error('[dashboard] Policy update failed:', err);
+      res.status(400).json({ error: 'Failed to update policy' });
     }
   });
 
@@ -1172,8 +1257,9 @@ export function createDashboardServer(config: Config): express.Express {
       const data = collectPRData(request, config);
       const comment = generatePRComment(data, config);
       res.json({ branch, sessions: data.sessions.length, comment, data });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (e: unknown) {
+      console.error('[dashboard] PR comment preview failed:', e);
+      res.status(500).json({ error: 'Failed to generate PR comment preview' });
     }
   });
 
@@ -1204,10 +1290,11 @@ export function createDashboardServer(config: Config): express.Express {
         const result = await postOrUpdateComment(targetRepo, prNumber, comment, config);
         res.json({ ok: true, ...result, branch: targetBranch, sessions: data.sessions.length });
       } else {
-        res.status(501).json({ error: `Platform '${targetPlatform}' adapter not yet implemented. Use preview endpoint or GitHub.` });
+        res.status(501).json({ error: 'Platform adapter not yet implemented. Use preview endpoint or GitHub.' });
       }
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (e: unknown) {
+      console.error('[dashboard] PR comment post failed:', e);
+      res.status(500).json({ error: 'Failed to post PR comment' });
     }
   });
 

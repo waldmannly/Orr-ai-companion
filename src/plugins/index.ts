@@ -37,8 +37,8 @@ export interface PluginManifest {
   description: string;
   author: string;
   rules: PluginRule[];
-  /** Optional event processor function source (eval'd) */
-  processor?: string;
+  /** @deprecated Removed for security — use Worker threads for custom processors */
+  processor?: never;
   /** Optional widget data config */
   widgets?: PluginWidget[];
 }
@@ -84,11 +84,21 @@ export function loadPlugin(filePath: string): LoadedPlugin {
     throw new Error('Plugin manifest must have id and name');
   }
 
-  // Compile regex patterns
-  const compiledRules = (manifest.rules || []).map(rule => ({
-    rule,
-    regex: rule.isRegex ? new RegExp(rule.pattern, 'i') : null,
-  }));
+  // Compile regex patterns — with safety validation
+  const compiledRules = (manifest.rules || []).map(rule => {
+    let regex: RegExp | null = null;
+    if (rule.isRegex) {
+      // SECURITY: Reject overly complex regex patterns that could cause ReDoS
+      if (rule.pattern.length > 500) throw new Error(`Plugin ${manifest.id}: regex pattern too long (max 500 chars)`);
+      if (/(\+\+|\*\*|\{\d{3,}\})/.test(rule.pattern)) throw new Error(`Plugin ${manifest.id}: potentially dangerous regex pattern`);
+      try {
+        regex = new RegExp(rule.pattern, 'i');
+      } catch (e) {
+        throw new Error(`Plugin ${manifest.id}: invalid regex pattern in rule "${rule.name}"`);
+      }
+    }
+    return { rule, regex };
+  });
 
   const loaded: LoadedPlugin = {
     manifest,
