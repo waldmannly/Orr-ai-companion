@@ -94,11 +94,11 @@ export function evaluateAlerts(event: TrackerEvent, config: Config): Alert[] {
   // ── NEW: Deployment detection ──
   if (event.command && shouldAlert(config, 'deployment', 'danger')) {
     const deployPatterns: Array<{ pattern: RegExp; msg: string }> = [
-      { pattern: /\b(deploy|publish)\b.*(prod|production|live|release)/i, msg: 'Production deployment command' },
+      { pattern: /\bdeploy\b.*(prod|production|live|release)/i, msg: 'Production deployment command' },
+      { pattern: /\b(npm|docker|nuget|cargo|gem|pip)\s+publish\b/i, msg: 'Package publish command' },
       { pattern: /\b(kubectl|helm)\s+(apply|install|upgrade|rollout)/i, msg: 'Kubernetes cluster change' },
       { pattern: /\b(docker\s+push|docker\s+compose\s+up.*--detach)/i, msg: 'Docker image push / production container' },
       { pattern: /\b(terraform\s+apply|pulumi\s+up|cdk\s+deploy|sam\s+deploy|serverless\s+deploy)/i, msg: 'Infrastructure-as-code deployment' },
-      { pattern: /\bnpm\s+publish\b/i, msg: 'Publishing package to npm' },
       { pattern: /\bgit\s+push\b.*\b(main|master|release|production)\b/i, msg: 'Push to protected branch' },
       { pattern: /\b(aws\s+(s3\s+sync|s3\s+cp|lambda\s+update|ecs\s+update-service))/i, msg: 'AWS service update' },
       { pattern: /\b(gcloud\s+(app\s+deploy|run\s+deploy|functions\s+deploy))/i, msg: 'Google Cloud deployment' },

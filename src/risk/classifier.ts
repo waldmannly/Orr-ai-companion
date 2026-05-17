@@ -80,11 +80,11 @@ export function classifyRiskWithReasons(event: TrackerEvent, config: Config): Ri
   if (event.command) {
     const cmd = event.command;
     const deployPatterns: Array<{ pattern: RegExp; reason: string; danger: string }> = [
-      { pattern: /\b(deploy|publish)\b.*(prod|production|live|release)/i, reason: 'Command appears to deploy to production', danger: 'Production deployments can push untested code to live users — outages, data corruption, or security holes' },
+      { pattern: /\bdeploy\b.*(prod|production|live|release)/i, reason: 'Command appears to deploy to production', danger: 'Production deployments can push untested code to live users — outages, data corruption, or security holes' },
+      { pattern: /\b(npm|docker|nuget|cargo|gem|pip)\s+publish\b/i, reason: 'Package publish command detected', danger: 'Published packages are public and may be immutable — malicious code reaches all downstream consumers' },
       { pattern: /\b(kubectl|helm)\s+(apply|install|upgrade|rollout)/i, reason: 'Kubernetes deployment command detected', danger: 'Cluster changes affect running services — bad configs can cause cascading failures across infrastructure' },
       { pattern: /\b(docker\s+push|docker\s+compose\s+up.*--detach)/i, reason: 'Docker image push or production container start', danger: 'Pushing images or starting detached containers deploys code that may run unsupervised' },
       { pattern: /\b(terraform\s+apply|pulumi\s+up|cdk\s+deploy|sam\s+deploy|serverless\s+deploy)/i, reason: 'Infrastructure-as-code deployment detected', danger: 'IaC deployments modify cloud infrastructure — can create resources, change permissions, or destroy services' },
-      { pattern: /\bnpm\s+publish\b/i, reason: 'Publishing package to npm registry', danger: 'Published packages are public and immutable — malicious code reaches all downstream consumers' },
       { pattern: /\bgit\s+push\b.*\b(main|master|release|production)\b/i, reason: 'Push to protected branch (main/master/release)', danger: 'Pushing directly to protected branches may trigger CI/CD deployment pipelines automatically' },
       { pattern: /\b(aws\s+(s3\s+sync|s3\s+cp|lambda\s+update|ecs\s+update-service))/i, reason: 'AWS service deployment or update detected', danger: 'Directly modifying AWS resources can affect running production services and stored data' },
       { pattern: /\b(gcloud\s+(app\s+deploy|run\s+deploy|functions\s+deploy))/i, reason: 'Google Cloud deployment detected', danger: 'GCP deployments push code to cloud services — can break live systems or incur costs' },

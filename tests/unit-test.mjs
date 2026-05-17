@@ -706,6 +706,16 @@ test('deployment: vercel --prod is danger', () => {
   assert.equal(classifyRisk(ev, makeConfig()), 'danger');
 });
 
+test('deployment: dotnet publish is NOT deployment (build command)', () => {
+  const ev = makeEvent({ event_type: 'terminal_command', command: 'dotnet publish -c Release -o ./publish' });
+  assert.notEqual(classifyRisk(ev, makeConfig()), 'danger');
+});
+
+test('deployment: cargo publish is danger', () => {
+  const ev = makeEvent({ event_type: 'terminal_command', command: 'cargo publish' });
+  assert.equal(classifyRisk(ev, makeConfig()), 'danger');
+});
+
 test('ssh connection is danger', () => {
   const ev = makeEvent({ event_type: 'terminal_command', command: 'ssh user@prod-server.com' });
   assert.equal(classifyRisk(ev, makeConfig()), 'danger');
