@@ -142,6 +142,12 @@ export class Watcher {
                 totalEvents: counters.total,
               });
             }
+            // Clean up session-scoped Maps to prevent memory leaks
+            this.sessionCounters.delete(sessionId);
+            this.parserStates.delete(sessionId);
+            this.sessionProvider.delete(sessionId);
+            this.sessionFiles.delete(sessionId);
+            this.recentHashes.delete(sessionId);
           }
         }
       }

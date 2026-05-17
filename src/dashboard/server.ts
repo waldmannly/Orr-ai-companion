@@ -480,9 +480,10 @@ export function createDashboardServer(config: Config): express.Express {
   });
 
   // Fields that can be changed via API — security-critical fields require manual config edit
+  // SECURITY: alertRules, sensitiveFiles, dangerousCommands are NOT mutable via API
+  // because a malicious AI agent on localhost could disable them to evade detection
   const SETTINGS_MUTABLE_FIELDS = new Set([
-    'retention', 'alerts', 'dashboard', 'tokenBudget', 'costEstimation',
-    'alertRules', 'sensitiveFiles', 'dangerousCommands',
+    'retention', 'alerts', 'dashboard', 'tokenBudget', 'costEstimation', 'notifications',
   ]);
 
   app.put('/api/settings', (req, res) => {
@@ -781,6 +782,11 @@ export function createDashboardServer(config: Config): express.Express {
   app.post('/api/rules/packs/load', (req, res) => {
     const { path: packPath } = req.body;
     if (!packPath) return res.status(400).json({ error: 'path required' });
+    // SECURITY: Only allow loading packs from allowed directories
+    const resolved = path.resolve(packPath);
+    if (!isPathAllowed(resolved, config)) {
+      return res.status(403).json({ error: 'Pack path must be within allowed directories' });
+    }
     try {
       const pack = loadPackFromFile(packPath);
       res.json({ ok: true, pack: { id: pack.id, name: pack.name, rules: pack.rules.length } });
@@ -1016,6 +1022,11 @@ export function createDashboardServer(config: Config): express.Express {
   app.post('/api/plugins/load', (req, res) => {
     const { path: filePath } = req.body || {};
     if (!filePath) return res.status(400).json({ error: 'path required' });
+    // SECURITY: Only allow loading plugins from the data/plugins directory or cwd
+    const resolved = path.resolve(filePath);
+    if (!isPathAllowed(resolved, config)) {
+      return res.status(403).json({ error: 'Plugin path must be within allowed directories' });
+    }
     try {
       const loaded = loadPlugin(filePath);
       res.json({ ok: true, id: loaded.manifest.id, rules: loaded.compiledRules.length });

@@ -3708,21 +3708,21 @@ function renderSettings() {
 
   document.getElementById('settingsContent').innerHTML = `
     <div class="settings-section">
-      <div class="settings-section-title">Alert Rules</div>
-      <div class="setting-desc" style="margin-bottom:10px;">Choose which events trigger alerts and at what severity level. Toggle off rules you don't need.</div>
+      <div class="settings-section-title">Alert Rules <span style="font-size:.7rem;color:var(--yellow);font-weight:normal;">🔒 config.json only</span></div>
+      <div class="setting-desc" style="margin-bottom:10px;">Alert rules are read-only in the dashboard for security. Edit <code>config.json</code> directly to change them.</div>
       ${rulesHtml}
     </div>
 
     <div class="settings-section">
-      <div class="settings-section-title">Dangerous Commands</div>
-      <div class="setting-desc" style="margin-bottom:8px;">One pattern per line. Commands matching these will trigger danger-level alerts.</div>
-      <textarea class="setting-textarea" id="settingsDangerCmds" rows="6" spellcheck="false">${esc(dangerCmds)}</textarea>
+      <div class="settings-section-title">Dangerous Commands <span style="font-size:.7rem;color:var(--yellow);font-weight:normal;">🔒 config.json only</span></div>
+      <div class="setting-desc" style="margin-bottom:8px;">One pattern per line. Edit <code>config.json</code> to change — locked in dashboard for security.</div>
+      <textarea class="setting-textarea" id="settingsDangerCmds" rows="6" spellcheck="false" readonly style="opacity:0.7;cursor:not-allowed;">${esc(dangerCmds)}</textarea>
     </div>
 
     <div class="settings-section">
-      <div class="settings-section-title">Sensitive File Patterns</div>
-      <div class="setting-desc" style="margin-bottom:8px;">Glob patterns (one per line) for files that should trigger warnings when accessed.</div>
-      <textarea class="setting-textarea" id="settingsSensitivePatterns" rows="5" spellcheck="false">${esc(sensitivePatterns)}</textarea>
+      <div class="settings-section-title">Sensitive File Patterns <span style="font-size:.7rem;color:var(--yellow);font-weight:normal;">🔒 config.json only</span></div>
+      <div class="setting-desc" style="margin-bottom:8px;">Glob patterns (one per line). Edit <code>config.json</code> to change — locked in dashboard for security.</div>
+      <textarea class="setting-textarea" id="settingsSensitivePatterns" rows="5" spellcheck="false" readonly style="opacity:0.7;cursor:not-allowed;">${esc(sensitivePatterns)}</textarea>
     </div>
 
     <div class="settings-section">
@@ -4009,10 +4009,15 @@ async function saveSettings() {
     },
   };
 
+  // Strip security-critical fields that can only be changed via config.json
+  const { alertRules, sensitiveFiles, dangerousCommands, notifications, guardrails, watchPaths, prBot, ...apiSafe } = settingsDraft;
+  // Only include non-security-critical notification settings
+  apiSafe.notifications = notifications;
+
   const res = await fetch('/api/settings', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(settingsDraft),
+    body: JSON.stringify(apiSafe),
   });
   const data = await res.json();
   if (data.ok) {

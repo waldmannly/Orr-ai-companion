@@ -466,3 +466,26 @@ All of these work today on localhost.
 - `src/compliance/index.ts` — Sequence gap detection in `verifyChain()`
 - `src/rules/packs.ts` — Safe regex execution with length limits
 - `tests/unit-test.mjs` — 9 new security tests (826 total, up from 817)
+
+---
+
+## Third Security Audit — Round 3
+
+**Date:** May 17, 2026  
+**Scope:** Deep review of file access controls, API privilege escalation, and memory management  
+**Status:** All findings fixed and tested (829 unit tests passing)
+
+### Findings & Fixes Applied
+
+| # | Severity | Finding | Fix |
+|---|----------|---------|-----|
+| 1 | HIGH | Plugin/pack load endpoints allow arbitrary file read — `POST /api/plugins/load` and `POST /api/rules/packs/load` accepted unvalidated file paths, letting a local attacker read any file on disk | Added `isPathAllowed()` check before `loadPlugin()` and `loadPackFromFile()` — rejects paths outside allowed directories with 403 |
+| 2 | MEDIUM | Security-critical settings mutable via API — `alertRules`, `sensitiveFiles`, `dangerousCommands` were in `SETTINGS_MUTABLE_FIELDS`, so a malicious AI agent on localhost could disable alert rules via `PUT /api/settings` | Removed those 3 fields from `SETTINGS_MUTABLE_FIELDS`; dashboard UI now shows them read-only with "Edit config.json" instruction |
+| 3 | LOW | Session-scoped Maps never cleaned up — `sessionCounters`, `parserStates`, `sessionProvider`, `sessionFiles`, `recentHashes` grew unboundedly as sessions ended | Added `.delete(sessionId)` for all 5 Maps in the session-end timer cleanup |
+
+### Files Modified
+
+- `src/dashboard/server.ts` — Path validation for plugin/pack load; security-critical fields removed from mutable settings; `notifications` added to mutable set
+- `src/watcher/index.ts` — Session Map cleanup on session end
+- `src/dashboard/public/index.html` — Settings UI: alertRules/dangerousCommands/sensitiveFiles sections marked read-only; `saveSettings()` strips blocked fields before API call
+- `tests/unit-test.mjs` — 3 new security tests (829 total, up from 826): settings field blocking, plugin path traversal, pack path traversal

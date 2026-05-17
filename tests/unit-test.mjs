@@ -2815,14 +2815,26 @@ await testAsync('PUT /api/settings updates config', async () => {
   const res = await fetch(`${BASE}/api/settings`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ alertRules: { deployment: { enabled: false, minSeverity: 'danger' } } }),
+    body: JSON.stringify({ retention: { days: 60 } }),
   });
   assert.equal(res.status, 200);
   const data = await res.json();
   assert.ok(data.ok);
   // Verify it took effect
   const { data: updated } = await fetchJson('/api/settings');
-  assert.equal(updated.alertRules.deployment.enabled, false);
+  assert.equal(updated.retention.days, 60);
+});
+
+await testAsync('PUT /api/settings blocks security-critical fields', async () => {
+  // alertRules, sensitiveFiles, dangerousCommands cannot be changed via API
+  for (const field of ['alertRules', 'sensitiveFiles', 'dangerousCommands']) {
+    const res = await fetch(`${BASE}/api/settings`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ [field]: {} }),
+    });
+    assert.equal(res.status, 403, `${field} should be blocked`);
+  }
 });
 
 await testAsync('PUT /api/settings rejects invalid body', async () => {
@@ -3095,6 +3107,24 @@ await testAsync('GET /api/plugins/rules returns 200', async () => {
   const { status, data } = await fetchJson('/api/plugins/rules');
   assert.equal(status, 200);
   assert.ok(Array.isArray(data));
+});
+
+await testAsync('POST /api/plugins/load blocks path traversal', async () => {
+  const res = await fetch(`${BASE}/api/plugins/load`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: '/etc/passwd' }),
+  });
+  assert.equal(res.status, 403);
+});
+
+await testAsync('POST /api/rules/packs/load blocks path traversal', async () => {
+  const res = await fetch(`${BASE}/api/rules/packs/load`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: '../../etc/shadow' }),
+  });
+  assert.equal(res.status, 403);
 });
 
 await testAsync('GET /api/team/users returns 200', async () => {
