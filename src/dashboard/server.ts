@@ -16,7 +16,7 @@ import {
   setSessionTaskGroup, getLinkedSessions, getTaskGroups, getBranchActivitySummary,
   vacuumDb,
 } from '../storage/db';
-import { testWebhook } from '../notifications';
+import { testWebhook, isAllowedWebhookUrl } from '../notifications';
 import { getAllTrustScores, getTrustScore, getProviderComparison } from '../trust';
 import { verifyChain, generateEvidenceReport, exportSignedSession, initHashChain } from '../compliance';
 import { getAvailablePacks, loadPackFromFile, loadPacksFromDirectory } from '../rules/packs';
@@ -351,6 +351,8 @@ export function createDashboardServer(config: Config): express.Express {
     // /memories/repo/X.md → .github/copilot-memory/X.md (in each workspace)
     if (virtualPath.startsWith('/memories/repo/')) {
       const relative = virtualPath.replace('/memories/repo/', '');
+      // SECURITY: Block path traversal
+      if (relative.includes('..') || relative.startsWith('/') || relative.startsWith('\\')) return null;
       // Check known workspaces from sessions
       const sessions = getAllSessions(100);
       for (const s of sessions) {
@@ -371,6 +373,8 @@ export function createDashboardServer(config: Config): express.Express {
     const userHome = process.env.USERPROFILE || process.env.HOME || '';
     const appData = process.env.APPDATA || path.join(userHome, 'AppData', 'Roaming');
     const relative = virtualPath.replace('/memories/', '');
+    // SECURITY: Block path traversal
+    if (relative.includes('..') || relative.startsWith('/') || relative.startsWith('\\')) return null;
 
     // VS Code stores user memories in globalStorage
     const candidates = [
@@ -389,7 +393,8 @@ export function createDashboardServer(config: Config): express.Express {
     if (!memPath) return res.status(400).json({ error: 'Missing path' });
     const resolved = resolveMemoryPath(memPath);
     if (!resolved) return res.status(404).json({ error: 'Memory file not found on disk', virtual_path: memPath, hint: memPath.startsWith('/memories/session/') ? 'Session memory is ephemeral and not persisted to disk' : 'Could not locate the physical file — it may have been deleted or the workspace is not accessible' });
-    res.json({ virtual_path: memPath, real_path: resolved });
+    // SECURITY: Don't expose real filesystem path — only confirm resolution succeeded
+    res.json({ virtual_path: memPath, resolved: true });
   });
 
   // Read file content (text files only, capped at 200KB)
@@ -493,6 +498,15 @@ export function createDashboardServer(config: Config): express.Express {
     const forbidden = Object.keys(updates).filter(k => !SETTINGS_MUTABLE_FIELDS.has(k) || k === '__proto__' || k === 'constructor' || k === 'prototype');
     if (forbidden.length > 0) {
       return res.status(403).json({ error: `Cannot modify via API: ${forbidden.join(', ')}. Edit config.json directly for security-sensitive fields.` });
+    }
+    // SECURITY: Validate webhook URLs at save time (SSRF prevention)
+    if (updates.notifications) {
+      for (const channel of ['slack', 'teams', 'webhook'] as const) {
+        const url = updates.notifications?.[channel]?.url;
+        if (url && !isAllowedWebhookUrl(url)) {
+          return res.status(400).json({ error: `Invalid ${channel} URL: private/internal network addresses are blocked` });
+        }
+      }
     }
     const merged = mergeConfig({ ...config, ...updates });
     // Apply to running config

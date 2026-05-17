@@ -2612,7 +2612,7 @@ document.getElementById('globalSearchInput')?.addEventListener('input', (e) => {
       return;
     }
     el.innerHTML = results.map(r => `
-      <div class="search-result-item" onclick="closeSearch();drillToSession('${esc(r.session_id)}','')">
+      <div class="search-result-item" onclick="closeSearch();drillToSession('${escAttr(r.session_id)}','')">
         <div class="sr-summary"><span style="margin-right:4px">${icon(r.event_type)}</span>${esc(r.summary)}</div>
         <div class="sr-meta">
           <span class="badge badge-${r.risk_level}" style="font-size:.6rem">${r.risk_level}</span>
@@ -2955,7 +2955,7 @@ async function loadHome() {
   // Recent alerts
   const alerts = await api('/api/alerts?limit=3');
   const alertsHtml = (alerts || []).map(a => `
-    <div class="alert-item clickable sev-${a.severity}" onclick="drillAlertToEvent(${a.event_id || 0}, '${esc(a.session_id || '')}')">
+    <div class="alert-item clickable sev-${a.severity}" onclick="drillAlertToEvent(${a.event_id || 0}, '${escAttr(a.session_id || '')}')">
       <div class="flex-between">
         <div class="alert-time">${fmtTime(a.timestamp)}</div>
         <span class="badge badge-${a.severity}">${esc(a.severity)}</span>
@@ -3084,7 +3084,7 @@ function renderSessions(list, projectFilter) {
     const duration = fmtDuration(s.started_at, s.ended_at);
     const killedBadge = s.killed_at ? '<span class="badge badge-danger" style="margin-left:6px">🛑 KILLED</span>' : '';
     return `
-    <div class="session-item${s.killed_at ? ' session-killed' : ''}" onclick="drillToSession('${esc(s.id)}','${escAttr(s.project_name || s.id.substring(0,8))}')">
+    <div class="session-item${s.killed_at ? ' session-killed' : ''}" onclick="drillToSession('${escAttr(s.id)}','${escAttr(s.project_name || s.id.substring(0,8))}')">
       <div class="session-heat ${heatClass(s.danger_count, s.warn_count)}"></div>
       <div class="session-info">
         <div class="session-name">${sourceBadge(s.source_tool)} ${esc(s.project_name || s.id.substring(0,8))} <span class="session-status ${s.killed_at ? 'killed' : s.ended_at ? 'ended' : 'active'}">${s.killed_at ? '🛑 killed' : s.ended_at ? 'ended' : '● live'}</span>${killedBadge}</div>
@@ -3248,7 +3248,7 @@ function renderTimeline() {
     const detail = buildDetail(e);
     const agentBadge = isSubagent ? `<span class="agent-badge" onclick="event.stopPropagation();setFilter('agent','${escAttr(e.agent_id)}')" title="Filter by agent" style="cursor:pointer">🤖 ${esc(e.agent_id)}</span>` : '';
     const subagentDetail = e.event_type === 'subagent_spawn' && e.parameters ? buildSubagentDetail(e.parameters) : '';
-    const sessionLink = isRecentView && e.session_id ? `<span class="tl-session-link" onclick="event.stopPropagation();drillToSession('${esc(e.session_id)}','')">📋 ${esc(e.session_id.substring(0,8))}</span>` : '';
+    const sessionLink = isRecentView && e.session_id ? `<span class="tl-session-link" onclick="event.stopPropagation();drillToSession('${escAttr(e.session_id)}','')">📋 ${esc(e.session_id.substring(0,8))}</span>` : '';
     const sourceBadgeHtml = e.source_tool && e.source_tool !== 'vscode-copilot' ? `<span onclick="event.stopPropagation();setFilter('source','${escAttr(e.source_tool)}')" style="cursor:pointer">${sourceBadge(e.source_tool)}</span>` : '';
     html.push(`
       <div class="tl-item${isSubagent ? ' subagent' : ''} risk-${e.risk_level}" data-event-id="${e.id || ''}" onclick="this.classList.toggle('expanded')">
@@ -3440,7 +3440,7 @@ async function loadThreats() {
   for (const t of threats) {
     const typeLabel = t.alert_type === 'critical_threat' ? 'CONFIRMED THREAT' : t.alert_type === 'typosquat' ? 'TYPOSQUAT ATTACK' : t.alert_type.toUpperCase();
     html += `
-      <div class="threat-card" onclick="drillAlertToEvent(${t.event_id || 0}, '${esc(t.session_id || '')}')">
+      <div class="threat-card" onclick="drillAlertToEvent(${t.event_id || 0}, '${escAttr(t.session_id || '')}')">
         <div style="display:flex;justify-content:space-between;align-items:center;">
           <span class="threat-type">${esc(typeLabel)}</span>
           <span class="badge badge-critical">CRITICAL</span>
@@ -3452,7 +3452,7 @@ async function loadThreats() {
         </div>
         <div style="margin-top:8px;">
           ${!t.acknowledged ? `<button class="alert-ack" onclick="event.stopPropagation();ackAlert(${t.id}, this);loadThreats();">✓ Mark Reviewed</button>` : ''}
-          ${t.session_id ? `<span style="font-size:.68rem;color:#e040fb;cursor:pointer;margin-left:8px;" onclick="event.stopPropagation();drillAlertToEvent(${t.event_id || 0}, '${esc(t.session_id)}')">→ Investigate session</span>` : ''}
+          ${t.session_id ? `<span style="font-size:.68rem;color:#e040fb;cursor:pointer;margin-left:8px;" onclick="event.stopPropagation();drillAlertToEvent(${t.event_id || 0}, '${escAttr(t.session_id)}')">→ Investigate session</span>` : ''}
         </div>
       </div>`;
   }
@@ -3512,7 +3512,7 @@ async function loadSecurity() {
 
     <div class="section-title">Alerts (${filtered.length})</div>
     ${filtered.map(a => `
-      <div class="alert-item clickable sev-${a.severity}" onclick="drillAlertToEvent(${a.event_id || 0}, '${esc(a.session_id || '')}')">
+      <div class="alert-item clickable sev-${a.severity}" onclick="drillAlertToEvent(${a.event_id || 0}, '${escAttr(a.session_id || '')}')">
         <div class="flex-between">
           <div class="alert-time">${fmtTime(a.timestamp)}${a.session_id ? ` <span class="tl-session-link">📋 ${esc(a.session_id.substring(0,8))}</span>` : ''}</div>
           <span class="badge badge-${a.severity}">${esc(a.severity)}</span>
@@ -3520,7 +3520,7 @@ async function loadSecurity() {
         <div class="alert-msg">${esc(a.message)}</div>
         <div style="display:flex;gap:8px;align-items:center;margin-top:6px;">
           ${!a.acknowledged ? `<button class="alert-ack" onclick="event.stopPropagation();ackAlert(${a.id}, this)">✓ Acknowledge</button>` : `<button class="alert-ack done">✓ Acknowledged</button>`}
-          ${a.session_id ? `<span style="font-size:.68rem;color:var(--accent);cursor:pointer" onclick="event.stopPropagation();drillAlertToEvent(${a.event_id || 0}, '${esc(a.session_id)}')">→ Go to event</span>` : ''}
+          ${a.session_id ? `<span style="font-size:.68rem;color:var(--accent);cursor:pointer" onclick="event.stopPropagation();drillAlertToEvent(${a.event_id || 0}, '${escAttr(a.session_id)}')">→ Go to event</span>` : ''}
         </div>
       </div>
     `).join('')}
@@ -3579,7 +3579,7 @@ function renderMemory() {
     </div>
     <div class="mem-filter-bar">
       <button class="filter-btn ${scope === 'all' ? 'active' : ''}" onclick="setMemScope('all')">All</button>
-      ${scopes.map(s => `<button class="filter-btn ${scope === s ? 'active' : ''}" onclick="setMemScope('${esc(s)}')">${esc(s)}</button>`).join('')}
+      ${scopes.map(s => `<button class="filter-btn ${scope === s ? 'active' : ''}" onclick="setMemScope('${escAttr(s)}')">${esc(s)}</button>`).join('')}
     </div>
     <div class="section-title">Memory Operations${scope !== 'all' ? ` — ${esc(scope)}` : ''} (${filtered.length})</div>
     ${filtered.map(o => {
@@ -4827,7 +4827,7 @@ async function loadPlugins() {
           <strong>${esc(p.name)}</strong> <span style="color:var(--muted)">v${esc(p.version)}</span>
           ${p.description ? `<div style="color:var(--muted);font-size:.78rem;">${esc(p.description)}</div>` : ''}
           <div style="font-size:.78rem;margin-top:2px;">${p.ruleCount} rules, ${p.widgetCount} widgets</div>
-          <button class="btn btn-sm" style="margin-top:4px;" onclick="unloadPluginUI('${esc(p.id)}')">Unload</button>
+          <button class="btn btn-sm" style="margin-top:4px;" onclick="unloadPluginUI('${escAttr(p.id)}')">Unload</button>
         </div>`;
       }
     }
@@ -4884,7 +4884,7 @@ async function loadTeam() {
       for (const u of users) {
         h += `<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:.85rem;display:flex;justify-content:space-between;align-items:center;">
           <div><strong>${esc(u.name)}</strong> <span class="badge">${u.role}</span> ${!u.is_active ? '<span style="color:var(--danger)">(inactive)</span>' : ''}</div>
-          ${u.is_active ? `<button class="btn btn-sm" onclick="deactivateUserUI('${esc(u.id)}')">Deactivate</button>` : ''}
+          ${u.is_active ? `<button class="btn btn-sm" onclick="deactivateUserUI('${escAttr(u.id)}')">Deactivate</button>` : ''}
         </div>`;
       }
     }
@@ -5094,7 +5094,7 @@ async function loadLinkedSessions() {
     else {
       for (const t of tasks) {
         const dangerColor = t.danger_count > 0 ? 'var(--danger)' : 'var(--muted)';
-        h += `<div style="padding:10px 0;border-bottom:1px solid var(--border);cursor:pointer;" onclick="drillTaskGroup('${esc(t.task_group)}')">
+        h += `<div style="padding:10px 0;border-bottom:1px solid var(--border);cursor:pointer;" onclick="drillTaskGroup('${escAttr(t.task_group)}')">
           <div style="display:flex;justify-content:space-between;align-items:center;">
             <div>
               <strong style="font-size:.95rem;">${esc(t.task_group)}</strong>
@@ -5132,7 +5132,7 @@ async function drillTaskGroup(taskGroup) {
     let h = `<button class="btn" onclick="loadLinkedSessions()" style="margin-bottom:12px;">← Back to all tasks</button>`;
     h += `<div class="card"><div class="card-title">📋 Sessions in "${esc(taskGroup)}" (${sessions.length})</div>`;
     for (const s of sessions) {
-      h += `<div style="padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer;" onclick="showPage('timeline','${esc(s.id)}')">
+      h += `<div style="padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer;" onclick="showPage('timeline','${escAttr(s.id)}')">
         <div style="display:flex;justify-content:space-between;">
           <div>
             <strong>${esc(s.id.slice(0, 16))}…</strong> <span class="badge">${esc(s.source_tool)}</span>

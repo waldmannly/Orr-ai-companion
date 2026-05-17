@@ -19,6 +19,8 @@ export function isAllowedWebhookUrl(url: string): boolean {
     if (host.startsWith('192.168.')) return false;
     if (host.startsWith('169.254.')) return false;  // Link-local / cloud metadata
     if (host === '0.0.0.0' || host === '[::]') return false;
+    // Block IPv6-mapped IPv4 addresses (e.g. ::ffff:127.0.0.1)
+    if (host.includes('ffff:')) return false;
     // Block 172.16.0.0/12 range
     if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return false;
     // Block common cloud metadata endpoints

@@ -489,3 +489,28 @@ All of these work today on localhost.
 - `src/watcher/index.ts` — Session Map cleanup on session end
 - `src/dashboard/public/index.html` — Settings UI: alertRules/dangerousCommands/sensitiveFiles sections marked read-only; `saveSettings()` strips blocked fields before API call
 - `tests/unit-test.mjs` — 3 new security tests (829 total, up from 826): settings field blocking, plugin path traversal, pack path traversal
+
+---
+
+## Fourth Security Audit — Round 4
+
+**Date:** May 17, 2026  
+**Scope:** XSS in client-side rendering, SSRF bypass vectors, path traversal in memory resolution, information disclosure  
+**Status:** All findings fixed and tested (834 unit tests passing)
+
+### Findings & Fixes Applied
+
+| # | Severity | Finding | Fix |
+|---|----------|---------|-----|
+| 1 | HIGH | XSS in 13 onclick handlers — `esc()` doesn't escape single quotes, allowing JavaScript injection via crafted session IDs, task groups, plugin IDs, etc. in onclick attribute contexts | Replaced all 13 `esc()` calls with `escAttr()` in onclick handlers; `escAttr()` properly escapes `'`, `"`, `\`, `<`, `>` |
+| 2 | MEDIUM | IPv6-mapped SSRF bypass — `isAllowedWebhookUrl()` didn't block `::ffff:127.0.0.1` and similar IPv6-mapped private IPv4 addresses | Added `host.includes('ffff:')` check to block all IPv6-mapped addresses |
+| 3 | MEDIUM | Path traversal in `resolveMemoryPath()` — `../` sequences in `/memories/repo/` and `/memories/` paths could escape intended directories | Added `..` / leading slash rejection in both repo and user memory path branches |
+| 4 | LOW | Information disclosure via `/api/memory/resolve` — returned `real_path` exposing filesystem layout | Replaced `real_path` with `resolved: true` boolean |
+| 5 | LOW | Webhook URL validation only at dispatch time — malicious URLs stored in config without validation | Added webhook URL SSRF validation in `PUT /api/settings` before saving |
+
+### Files Modified
+
+- `src/dashboard/public/index.html` — Fixed 13 XSS vulnerabilities: replaced `esc()` with `escAttr()` in all onclick handler contexts
+- `src/dashboard/server.ts` — Path traversal protection in `resolveMemoryPath()`; removed `real_path` from API response; webhook URL validation at save time; imported `isAllowedWebhookUrl`
+- `src/notifications/index.ts` — IPv6-mapped address SSRF bypass blocked
+- `tests/unit-test.mjs` — 5 new security tests (834 total, up from 829): IPv6-mapped SSRF, webhook URL save validation, memory path traversal, real_path disclosure

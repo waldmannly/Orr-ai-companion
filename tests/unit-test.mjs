@@ -3287,6 +3287,37 @@ await testAsync('GET /api/branches/:branch/summary returns 200', async () => {
   assert.equal(status, 200);
 });
 
+// ── Round 4: API-level security tests ──
+
+await testAsync('PUT /api/settings blocks SSRF webhook URLs', async () => {
+  const res = await fetch(`${BASE}/api/settings`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ notifications: { webhook: { enabled: true, url: 'https://127.0.0.1/steal' } } }),
+  });
+  assert.equal(res.status, 400);
+});
+
+await testAsync('PUT /api/settings allows valid webhook URLs', async () => {
+  const res = await fetch(`${BASE}/api/settings`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ notifications: { webhook: { enabled: true, url: 'https://hooks.slack.com/services/T1/B1/x', minSeverity: 'danger' } } }),
+  });
+  assert.equal(res.status, 200);
+});
+
+await testAsync('GET /api/memory/resolve does not leak real_path', async () => {
+  const res = await fetch(`${BASE}/api/memory/resolve?path=/memories/repo/test.md`);
+  const data = await res.json();
+  assert.strictEqual(data.real_path, undefined);
+});
+
+await testAsync('GET /api/memory/resolve blocks path traversal', async () => {
+  const res = await fetch(`${BASE}/api/memory/resolve?path=/memories/repo/../../etc/passwd`);
+  assert.equal(res.status, 404);
+});
+
 // Close test server
 server.close();
 
@@ -7139,6 +7170,17 @@ test('executeWidgetQuery blocks ATTACH and PRAGMA', () => {
   assert.throws(() => executeWidgetQuery('sec-attach-test', 'w-pragma', db));
   
   _resetPlugins();
+});
+
+// ═══ 41. Security Hardening — Round 4 ═══
+console.log('═══ 41. Security Hardening — Round 4 ═══');
+
+test('isAllowedWebhookUrl blocks IPv6-mapped IPv4 addresses', () => {
+  // ::ffff:127.0.0.1 is an IPv6-mapped form of localhost
+  assert.strictEqual(isAllowedWebhookUrl('https://[::ffff:127.0.0.1]/admin'), false);
+  assert.strictEqual(isAllowedWebhookUrl('https://[::ffff:10.0.0.1]/admin'), false);
+  assert.strictEqual(isAllowedWebhookUrl('https://[::ffff:192.168.1.1]/admin'), false);
+  assert.strictEqual(isAllowedWebhookUrl('https://[::ffff:169.254.169.254]/meta'), false);
 });
 
 // ══════════════════════════════════════════════════
