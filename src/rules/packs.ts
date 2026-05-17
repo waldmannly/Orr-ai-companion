@@ -240,13 +240,24 @@ export function evaluatePackRules(event: TrackerEvent): RiskSignal[] {
   return signals;
 }
 
+/** Regex cache for safeRegexTest — avoids recompiling the same patterns every event */
+const regexCache = new Map<string, RegExp>();
+
 /** Safely test a regex pattern with length limits to prevent ReDoS */
 function safeRegexTest(pattern: string, text: string): boolean {
   // Reject patterns that are excessively complex
   if (pattern.length > 500) return false;
   // Limit text length to prevent catastrophic backtracking on large inputs
   const safeText = text.length > 10000 ? text.substring(0, 10000) : text;
-  try { return new RegExp(pattern, 'i').test(safeText); } catch { return safeText.toLowerCase().includes(pattern.toLowerCase()); }
+  let re = regexCache.get(pattern);
+  if (!re) {
+    try {
+      re = new RegExp(pattern, 'i');
+      if (regexCache.size >= 200) regexCache.delete(regexCache.keys().next().value!);
+      regexCache.set(pattern, re);
+    } catch { return safeText.toLowerCase().includes(pattern.toLowerCase()); }
+  }
+  try { return re.test(safeText); } catch { return false; }
 }
 
 function matchesRule(event: TrackerEvent, rule: RuleDefinition): boolean {
@@ -272,20 +283,27 @@ function matchesRule(event: TrackerEvent, rule: RuleDefinition): boolean {
     if (!sumMatched) return false;
   }
 
-  // File pattern check (minimatch not available here, use simple matching)
+  // File pattern check (pre-compiled glob → regex)
   if (m.filePatterns && m.filePatterns.length > 0) {
     if (!event.file_paths || event.file_paths.length === 0) return false;
     const fileMatched = event.file_paths.some(fp => {
       const normalized = fp.replace(/\\/g, '/');
       return m.filePatterns!.some(pattern => {
         if (pattern.length > 500) return false;
-        // Simple glob: ** = anything, * = segment
-        const regex = pattern
-          .replace(/\./g, '\\.')
-          .replace(/\*\*/g, '##DOUBLESTAR##')
-          .replace(/\*/g, '[^/]*')
-          .replace(/##DOUBLESTAR##/g, '.*');
-        try { return new RegExp(regex, 'i').test(normalized); } catch { return normalized.includes(pattern.replace(/\*/g, '')); }
+        let re = regexCache.get('glob:' + pattern);
+        if (!re) {
+          const regexStr = pattern
+            .replace(/\./g, '\\.')
+            .replace(/\*\*/g, '##DOUBLESTAR##')
+            .replace(/\*/g, '[^/]*')
+            .replace(/##DOUBLESTAR##/g, '.*');
+          try {
+            re = new RegExp(regexStr, 'i');
+            if (regexCache.size >= 200) regexCache.delete(regexCache.keys().next().value!);
+            regexCache.set('glob:' + pattern, re);
+          } catch { return normalized.includes(pattern.replace(/\*/g, '')); }
+        }
+        try { return re.test(normalized); } catch { return false; }
       });
     });
     if (!fileMatched) return false;

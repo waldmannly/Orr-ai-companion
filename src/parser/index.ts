@@ -61,6 +61,15 @@ const TOOL_EVENT_MAP: Record<string, EventType> = {
   open_browser_page: 'web_fetch',
 };
 
+// Pre-compiled regex for git command classification (hot path)
+const GIT_RE = {
+  push: /\bgit\s+push\b/,
+  commit: /\bgit\s+commit\b/,
+  reset: /\bgit\s+reset\b/,
+  checkout: /\bgit\s+(?:checkout|switch)\b/,
+  any: /\bgit\s+/,
+};
+
 function classifyMemoryOp(args: Record<string, unknown>): EventType {
   const cmd = args.command as string | undefined;
   if (cmd === 'create' || cmd === 'str_replace' || cmd === 'insert') return 'memory_write';
@@ -202,11 +211,11 @@ export function parseTranscriptLine(line: string, sessionId: string, workspace: 
     // Detect git operations from terminal commands
     const cmd = extractCommand(toolName, args);
     if (cmd && eventType === 'terminal_command') {
-      if (/\bgit\s+push\b/.test(cmd)) eventType = 'git_push';
-      else if (/\bgit\s+commit\b/.test(cmd)) eventType = 'git_commit';
-      else if (/\bgit\s+reset\b/.test(cmd)) eventType = 'git_reset';
-      else if (/\bgit\s+checkout\b/.test(cmd) || /\bgit\s+switch\b/.test(cmd)) eventType = 'git_checkout';
-      else if (/\bgit\s+/.test(cmd)) eventType = 'git_operation';
+      if (GIT_RE.push.test(cmd)) eventType = 'git_push';
+      else if (GIT_RE.commit.test(cmd)) eventType = 'git_commit';
+      else if (GIT_RE.reset.test(cmd)) eventType = 'git_reset';
+      else if (GIT_RE.checkout.test(cmd)) eventType = 'git_checkout';
+      else if (GIT_RE.any.test(cmd)) eventType = 'git_operation';
     }
 
     const summary = buildSummary(toolName, args, eventType);

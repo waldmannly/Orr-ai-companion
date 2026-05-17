@@ -82,8 +82,13 @@ function migrate() {
     CREATE INDEX IF NOT EXISTS idx_events_source ON events(source_tool);
     CREATE INDEX IF NOT EXISTS idx_alerts_session ON alerts(session_id);
     CREATE INDEX IF NOT EXISTS idx_alerts_severity ON alerts(severity);
+    CREATE INDEX IF NOT EXISTS idx_alerts_timestamp ON alerts(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_alerts_ack ON alerts(acknowledged);
+    CREATE INDEX IF NOT EXISTS idx_events_ts_type ON events(timestamp, event_type);
+    CREATE INDEX IF NOT EXISTS idx_events_ts_risk ON events(timestamp, risk_level);
     CREATE INDEX IF NOT EXISTS idx_memory_session ON memory_operations(session_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_source ON sessions(source_tool);
+    CREATE INDEX IF NOT EXISTS idx_sessions_started ON sessions(started_at);
   `);
 
   // Tailer offset persistence (avoids reprocessing files from byte 0 on restart)
@@ -671,20 +676,36 @@ export function acknowledgeAllAlerts() {
 export function getStatsForRange(startDate: string, endDate: string) {
   const d = db;
 
-  const totalEvents = (d.prepare(`SELECT COUNT(*) as c FROM events WHERE timestamp >= ? AND timestamp < ?`).get(startDate, endDate) as { c: number }).c;
-  const filesChanged = (d.prepare(`SELECT COUNT(DISTINCT e.id) as c FROM events e WHERE event_type IN ('file_write','file_create','file_delete') AND timestamp >= ? AND timestamp < ?`).get(startDate, endDate) as { c: number }).c;
-  const commandsRun = (d.prepare(`SELECT COUNT(*) as c FROM events WHERE event_type IN ('terminal_command','git_commit','git_push','git_reset','git_checkout','git_operation') AND timestamp >= ? AND timestamp < ?`).get(startDate, endDate) as { c: number }).c;
-  const alertCount = (d.prepare(`SELECT COUNT(*) as c FROM alerts WHERE timestamp >= ? AND timestamp < ?`).get(startDate, endDate) as { c: number }).c;
-  const unreviewedAlerts = (d.prepare(`SELECT COUNT(*) as c FROM alerts WHERE acknowledged = 0`).get() as { c: number }).c;
-  const dangerCount = (d.prepare(`SELECT COUNT(*) as c FROM events WHERE risk_level = 'danger' AND timestamp >= ? AND timestamp < ?`).get(startDate, endDate) as { c: number }).c;
-  const warnCount = (d.prepare(`SELECT COUNT(*) as c FROM events WHERE risk_level = 'warn' AND timestamp >= ? AND timestamp < ?`).get(startDate, endDate) as { c: number }).c;
+  // Batch event stats into a single scan
+  const eventStats = d.prepare(`
+    SELECT
+      COUNT(*) as totalEvents,
+      COUNT(CASE WHEN event_type IN ('file_write','file_create','file_delete') THEN 1 END) as filesChanged,
+      COUNT(CASE WHEN event_type IN ('terminal_command','git_commit','git_push','git_reset','git_checkout','git_operation') THEN 1 END) as commandsRun,
+      SUM(CASE WHEN risk_level = 'danger' THEN 1 ELSE 0 END) as dangerCount,
+      SUM(CASE WHEN risk_level = 'warn' THEN 1 ELSE 0 END) as warnCount
+    FROM events WHERE timestamp >= ? AND timestamp < ?
+  `).get(startDate, endDate) as { totalEvents: number; filesChanged: number; commandsRun: number; dangerCount: number; warnCount: number };
+
+  // Batch alert stats
+  const alertStats = d.prepare(`
+    SELECT
+      COUNT(CASE WHEN timestamp >= ? AND timestamp < ? THEN 1 END) as alertCount,
+      SUM(CASE WHEN acknowledged = 0 THEN 1 ELSE 0 END) as unreviewedAlerts
+    FROM alerts
+  `).get(startDate, endDate) as { alertCount: number; unreviewedAlerts: number };
 
   const riskDist = d.prepare(`
     SELECT risk_level, COUNT(*) as count FROM events WHERE timestamp >= ? AND timestamp < ? GROUP BY risk_level
   `).all(startDate, endDate) as Array<{ risk_level: string; count: number }>;
 
-  const sessionCount = (d.prepare(`SELECT COUNT(*) as c FROM sessions WHERE started_at >= ? AND started_at < ?`).get(startDate, endDate) as { c: number }).c;
-  const activeSessions = (d.prepare(`SELECT COUNT(*) as c FROM sessions WHERE ended_at IS NULL`).get() as { c: number }).c;
+  // Batch session stats
+  const sessStats = d.prepare(`
+    SELECT
+      COUNT(CASE WHEN started_at >= ? AND started_at < ? THEN 1 END) as sessionCount,
+      SUM(CASE WHEN ended_at IS NULL THEN 1 ELSE 0 END) as activeSessions
+    FROM sessions
+  `).get(startDate, endDate) as { sessionCount: number; activeSessions: number };
 
   // Top files (most events)
   const topFiles = d.prepare(`
@@ -701,10 +722,18 @@ export function getStatsForRange(startDate: string, endDate: string) {
   `).all(startDate, endDate) as Array<{ command: string; hits: number }>;
 
   return {
-    today: { totalEvents, filesChanged, commandsRun, alertCount, unreviewedAlerts, dangerCount, warnCount },
+    today: {
+      totalEvents: eventStats.totalEvents,
+      filesChanged: eventStats.filesChanged,
+      commandsRun: eventStats.commandsRun,
+      alertCount: alertStats.alertCount,
+      unreviewedAlerts: alertStats.unreviewedAlerts,
+      dangerCount: eventStats.dangerCount,
+      warnCount: eventStats.warnCount,
+    },
     riskDistribution: riskDist,
-    sessionCount,
-    activeSessions,
+    sessionCount: sessStats.sessionCount,
+    activeSessions: sessStats.activeSessions,
     topFiles: topFiles.map(r => {
       try {
         const paths = JSON.parse(r.file_paths);

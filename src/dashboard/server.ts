@@ -178,16 +178,16 @@ export function createDashboardServer(config: Config): express.Express {
 
     const stats = getStatsForRange(startDate, endDate);
 
-    // Daily event counts for chart
+    // Daily event counts for chart — prepare statement once outside loop
     const days = range === 'month' ? 30 : range === 'week' ? 7 : 7;
     const dailyCounts: Array<{ date: string; count: number }> = [];
     const d2 = getDb();
+    const dailyStmt = d2.prepare('SELECT COUNT(*) as c FROM events WHERE timestamp >= ? AND timestamp < ?');
     for (let i = days - 1; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
       const dateStr = d.toISOString().split('T')[0];
-      const count = (d2.prepare('SELECT COUNT(*) as c FROM events WHERE timestamp >= ? AND timestamp < ?')
-        .get(dateStr + 'T00:00:00', dateStr + 'T23:59:59') as { c: number }).c;
+      const count = (dailyStmt.get(dateStr + 'T00:00:00', dateStr + 'T23:59:59') as { c: number }).c;
       dailyCounts.push({ date: dateStr, count });
     }
 
