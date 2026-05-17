@@ -2238,6 +2238,34 @@ test('normal ts file is not sensitive', () => {
   assert.equal(isSensitiveFile('/src/components/Button.tsx', makeConfig()), false);
 });
 
+test('.env.example is NOT sensitive (template file)', () => {
+  assert.equal(isSensitiveFile('/project/.env.example', makeConfig()), false);
+});
+
+test('.env.sample is NOT sensitive (template file)', () => {
+  assert.equal(isSensitiveFile('/project/.env.sample', makeConfig()), false);
+});
+
+test('.env.template is NOT sensitive (template file)', () => {
+  assert.equal(isSensitiveFile('/project/.env.template', makeConfig()), false);
+});
+
+test('.env.defaults is NOT sensitive (template file)', () => {
+  assert.equal(isSensitiveFile('/project/.env.defaults', makeConfig()), false);
+});
+
+test('.env.test is NOT sensitive (template file)', () => {
+  assert.equal(isSensitiveFile('/project/.env.test', makeConfig()), false);
+});
+
+test('.env.production IS still sensitive (real env file)', () => {
+  assert.equal(isSensitiveFile('/project/.env.production', makeConfig()), true);
+});
+
+test('.env.local IS still sensitive (real env file)', () => {
+  assert.equal(isSensitiveFile('/project/.env.local', makeConfig()), true);
+});
+
 test('exact path match works', () => {
   assert.equal(isSensitiveFile('/etc/shadow', makeConfig()), true);
 });

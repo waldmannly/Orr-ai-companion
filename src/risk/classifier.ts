@@ -290,14 +290,21 @@ export function classifyRiskWithReasons(event: TrackerEvent, config: Config): Ri
   return { level, signals };
 }
 
+// Template env files that contain no real secrets
+const SAFE_ENV_PATTERNS = /\.(example|sample|template|defaults|test|development)$/i;
+
 export function isSensitiveFile(filePath: string, config: Config): boolean {
   const normalized = filePath.replace(/\\/g, '/');
+  const basename = normalized.split('/').pop() || '';
+
+  // Exclude known-safe template files (e.g. .env.example, .env.sample, .env.template)
+  if (SAFE_ENV_PATTERNS.test(basename)) return false;
+
   for (const exact of config.sensitiveFiles.exactPaths) {
     if (normalized === exact.replace(/\\/g, '/')) return true;
   }
   for (const pattern of config.sensitiveFiles.patterns) {
     if (minimatch(normalized, pattern, { dot: true, nocase: true })) return true;
-    const basename = normalized.split('/').pop() || '';
     if (minimatch(basename, pattern, { dot: true, nocase: true })) return true;
   }
   return false;
