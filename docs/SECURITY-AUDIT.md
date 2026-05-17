@@ -514,3 +514,33 @@ All of these work today on localhost.
 - `src/dashboard/server.ts` — Path traversal protection in `resolveMemoryPath()`; removed `real_path` from API response; webhook URL validation at save time; imported `isAllowedWebhookUrl`
 - `src/notifications/index.ts` — IPv6-mapped address SSRF bypass blocked
 - `tests/unit-test.mjs` — 5 new security tests (834 total, up from 829): IPv6-mapped SSRF, webhook URL save validation, memory path traversal, real_path disclosure
+
+## Fifth Security Audit — Round 5
+
+**Date:** May 17, 2026  
+**Scope:** Deep audit — input validation, DoS vectors, regex injection, content bounds, configuration merge gaps  
+**Status:** All findings fixed and tested (838 unit tests passing)
+
+### Findings & Fixes Applied
+
+| # | Severity | Finding | Fix |
+|---|----------|---------|-----|
+| 1 | MEDIUM | Unbounded pagination — all `parseInt(req.query.limit)` calls across 16+ endpoints accepted any integer, enabling memory/DoS attacks | Added `clampInt(raw, default, max=5000)` helper; all endpoints now clamp limit to [1, 5000] and offset to [0, ∞). Also added `qstr()` helper to safely extract single string from query params (prevents array duplication attack). |
+| 2 | MEDIUM | Large file read DoS — `/api/memory/resolve` read entire multi-GB file into memory via `fs.readFileSync()` then truncated with `.substring()` | Replaced with `fs.openSync` + `fs.readSync` using a 200KB buffer — only reads the first 200KB from disk |
+| 3 | MEDIUM | Implicit cross-join DoS bypass — widget query validator counted `JOIN` keywords but ignored `SELECT * FROM a, b, c, d` comma-separated tables | Added comma-separated table count in FROM clause; rejects queries with >2 tables |
+| 4 | MEDIUM | Content array unbounded in `extractFullPrompt` — crafted JSONL with millions of array items caused memory exhaustion | Added `.slice(0, 100)` before all `.filter().map()` chains; capped individual strings at 50KB; added 1MB raw_log size gate |
+| 5 | MEDIUM | Regex injection in `minimatchLite` — patterns with `()[]{}+?.` etc. were not escaped before converting `*` to `.*`, enabling ReDoS | Added `pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&')` before `*` replacement |
+| 6 | LOW | Teams webhook missing from `mergeConfig` — `notifications.teams` config was dropped during config merge, reverting to defaults | Added `teams: { ...DEFAULTS.notifications.teams, ...sanitizeKeys(...) }` to merge |
+| 7 | LOW | Command length unbounded — `queueBlockedCommand()` stored arbitrarily long `original_command` strings | Added 10,000 char cap with truncation marker |
+| 8 | LOW | Content-Disposition header injection — session IDs interpolated into filenames without sanitizing special chars | Added `.replace(/[^a-zA-Z0-9-]/g, '')` to all 3 Content-Disposition filename interpolations |
+
+### Files Modified
+
+- `src/dashboard/server.ts` — `clampInt()`/`qstr()` helpers; 16 endpoint limit/offset clamps; large file partial read via fd; Content-Disposition filename sanitization
+- `src/storage/db.ts` — `getEventsFiltered()` limit/offset clamping
+- `src/plugins/index.ts` — Cross-join detection via comma-separated FROM tables
+- `src/watcher/index.ts` — `extractFullPrompt()` array slicing + string length caps + raw_log size gate
+- `src/agents/index.ts` — `minimatchLite()` regex special char escaping
+- `src/config/index.ts` — Teams webhook added to `mergeConfig` notifications
+- `src/commands/index.ts` — `original_command` length cap at 10,000 chars
+- `tests/unit-test.mjs` — 4 new security tests (838 total): cross-join blocking, regex injection safety, command truncation, teams merge config

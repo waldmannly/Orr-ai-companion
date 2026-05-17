@@ -112,10 +112,14 @@ export function queueBlockedCommand(params: {
   severity: RiskLevel;
   message: string;
 }): QueuedCommand {
+  // Cap command length to prevent DB bloat from oversized payloads
+  const safeCommand = params.original_command.length > 10000
+    ? params.original_command.substring(0, 10000) + '…[truncated]'
+    : params.original_command;
   const now = new Date().toISOString();
   const info = insertStmt().run(
     params.session_id, params.event_id, params.provider, params.project_name,
-    params.action_type, params.original_command,
+    params.action_type, safeCommand,
     params.rule, params.severity, params.message, now
   );
   return getCommandById(Number(info.lastInsertRowid))!;

@@ -217,6 +217,14 @@ export function executeWidgetQuery(pluginId: string, widgetId: string, db: any):
   if (crossJoinCount > 2) {
     throw new Error('Widget queries limited to 2 JOINs maximum');
   }
+  // Block implicit cross-joins via comma-separated tables (SELECT * FROM a, b, c)
+  const fromMatch = widget.query.match(/\bFROM\s+(.+?)(?:\bWHERE\b|\bGROUP\b|\bORDER\b|\bLIMIT\b|\bJOIN\b|$)/is);
+  if (fromMatch) {
+    const tableCount = fromMatch[1].split(',').length;
+    if (tableCount > 2) {
+      throw new Error('Widget queries limited to 2 tables maximum');
+    }
+  }
 
   // Enforce LIMIT to prevent memory exhaustion
   const hasLimit = /\bLIMIT\b/i.test(widget.query);

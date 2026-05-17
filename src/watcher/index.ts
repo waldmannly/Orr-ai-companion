@@ -599,38 +599,43 @@ export class Watcher {
    * We parse it to get the full content without the 200-char summary truncation.
    */
   private extractFullPrompt(event: { summary: string; raw_log: string; source_tool: string }): string | null {
+    const MAX_TEXT = 50_000;   // 50KB per prompt
+    const MAX_PARTS = 100;     // Max array items to process
     // Try to parse the raw JSONL line for the full content
-    if (event.raw_log) {
+    if (event.raw_log && event.raw_log.length < 1_000_000) {
       try {
         const raw = JSON.parse(event.raw_log);
         // VS Code Copilot format
         if (raw.data?.content && typeof raw.data.content === 'string') {
-          return raw.data.content;
+          return raw.data.content.substring(0, MAX_TEXT);
         }
         // Claude Code format
         if (raw.message?.content) {
-          if (typeof raw.message.content === 'string') return raw.message.content;
+          if (typeof raw.message.content === 'string') return raw.message.content.substring(0, MAX_TEXT);
           if (Array.isArray(raw.message.content)) {
             const texts = raw.message.content
+              .slice(0, MAX_PARTS)
               .filter((c: Record<string, unknown>) => c.type === 'text' && c.text)
-              .map((c: Record<string, unknown>) => c.text as string);
-            if (texts.length > 0) return texts.join('\n');
+              .map((c: Record<string, unknown>) => (c.text as string).substring(0, MAX_TEXT));
+            if (texts.length > 0) return texts.join('\n').substring(0, MAX_TEXT);
           }
         }
         // Gemini CLI format
         if (raw.parts && Array.isArray(raw.parts)) {
           const texts = raw.parts
+            .slice(0, MAX_PARTS)
             .filter((p: Record<string, unknown>) => p.text)
-            .map((p: Record<string, unknown>) => p.text as string);
-          if (texts.length > 0) return texts.join('\n');
+            .map((p: Record<string, unknown>) => (p.text as string).substring(0, MAX_TEXT));
+          if (texts.length > 0) return texts.join('\n').substring(0, MAX_TEXT);
         }
         // Generic: content field
-        if (typeof raw.content === 'string') return raw.content;
+        if (typeof raw.content === 'string') return raw.content.substring(0, MAX_TEXT);
         if (Array.isArray(raw.content)) {
           const texts = raw.content
+            .slice(0, MAX_PARTS)
             .filter((c: Record<string, unknown>) => typeof c === 'string' || c?.text)
-            .map((c: unknown) => typeof c === 'string' ? c : (c as Record<string, unknown>).text as string);
-          if (texts.length > 0) return texts.join('\n');
+            .map((c: unknown) => typeof c === 'string' ? c.substring(0, MAX_TEXT) : ((c as Record<string, unknown>).text as string).substring(0, MAX_TEXT));
+          if (texts.length > 0) return texts.join('\n').substring(0, MAX_TEXT);
         }
       } catch {
         // raw_log isn't valid JSON — fall through

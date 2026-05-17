@@ -106,6 +106,18 @@ export function createDashboardServer(config: Config): express.Express {
   const app = express();
   app.use(express.json({ limit: '100kb' }));
 
+  /** Clamp a query param to a safe integer range */
+  function clampInt(raw: string | undefined, defaultVal: number, max = 5000): number {
+    const n = parseInt(raw as string) || defaultVal;
+    return Math.min(Math.max(n, 1), max);
+  }
+
+  /** Safely extract a single string from a query param (handles array duplicates) */
+  function qstr(val: unknown): string | undefined {
+    if (Array.isArray(val)) return val[0] as string;
+    return val as string | undefined;
+  }
+
   // ── Security headers ──
   app.use((_req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -196,7 +208,7 @@ export function createDashboardServer(config: Config): express.Express {
 
   // Sessions
   app.get('/api/sessions', (req, res) => {
-    const limit = parseInt(req.query.limit as string) || 50;
+    const limit = clampInt(req.query.limit as string, 50);
     res.json(getAllSessions(limit));
   });
 
@@ -208,17 +220,17 @@ export function createDashboardServer(config: Config): express.Express {
 
   // Events
   app.get('/api/sessions/:id/events', (req, res) => {
-    const limit = parseInt(req.query.limit as string) || 500;
-    const offset = parseInt(req.query.offset as string) || 0;
-    const risk = req.query.risk as string | undefined;
-    const type = req.query.type as string | undefined;
+    const limit = clampInt(req.query.limit as string, 500);
+    const offset = Math.max(parseInt(req.query.offset as string) || 0, 0);
+    const risk = qstr(req.query.risk);
+    const type = qstr(req.query.type);
     const events = getSessionEvents(req.params.id, limit, offset,
       risk as 'info' | 'watch' | 'warn' | 'danger' | undefined, type);
     res.json(events);
   });
 
   app.get('/api/events/recent', (req, res) => {
-    const limit = parseInt(req.query.limit as string) || 50;
+    const limit = clampInt(req.query.limit as string, 50);
     res.json(getRecentEvents(limit));
   });
 
@@ -230,21 +242,21 @@ export function createDashboardServer(config: Config): express.Express {
 
   // Events touching a specific file (must be before :id route)
   app.get('/api/events/by-file', (req, res) => {
-    const filePath = req.query.path as string;
+    const filePath = qstr(req.query.path);
     if (!filePath) return res.status(400).json({ error: 'Missing path' });
-    const limit = parseInt(req.query.limit as string) || 100;
+    const limit = clampInt(req.query.limit as string, 100);
     res.json(getEventsByFile(filePath, limit));
   });
 
   // Advanced event filtering (must be before :id route)
   app.get('/api/events/filtered', (req, res) => {
     res.json(getEventsFiltered({
-      sessionId: req.query.sessionId as string,
-      startDate: req.query.startDate as string,
-      endDate: req.query.endDate as string,
-      riskLevel: req.query.riskLevel as string,
-      eventType: req.query.eventType as string,
-      search: req.query.search as string,
+      sessionId: qstr(req.query.sessionId),
+      startDate: qstr(req.query.startDate),
+      endDate: qstr(req.query.endDate),
+      riskLevel: qstr(req.query.riskLevel),
+      eventType: qstr(req.query.eventType),
+      search: qstr(req.query.search),
       limit: req.query.limit ? Number(req.query.limit) : undefined,
       offset: req.query.offset ? Number(req.query.offset) : undefined,
     }));
@@ -261,29 +273,29 @@ export function createDashboardServer(config: Config): express.Express {
 
   // Sessions for a project
   app.get('/api/projects/:name/sessions', (req, res) => {
-    const limit = parseInt(req.query.limit as string) || 50;
+    const limit = clampInt(req.query.limit as string, 50);
     res.json(getSessionsByProject(req.params.name, limit));
   });
 
   // Full-text search across events
   app.get('/api/search', (req, res) => {
-    const q = req.query.q as string;
+    const q = qstr(req.query.q);
     if (!q || q.length < 2) return res.status(400).json({ error: 'Query must be at least 2 characters' });
-    const limit = parseInt(req.query.limit as string) || 100;
+    const limit = clampInt(req.query.limit as string, 100);
     res.json(searchEvents(q, limit));
   });
 
   // Alerts
   app.get('/api/alerts', (req, res) => {
-    const limit = parseInt(req.query.limit as string) || 100;
-    const severity = req.query.severity as string | undefined;
-    const sessionId = req.query.session_id as string | undefined;
+    const limit = clampInt(req.query.limit as string, 100);
+    const severity = qstr(req.query.severity);
+    const sessionId = qstr(req.query.session_id);
     res.json(getAlerts(limit, severity as 'warn' | 'danger' | 'critical' | undefined, sessionId));
   });
 
   // Dedicated threats endpoint — critical alerts only
   app.get('/api/threats', (req, res) => {
-    const limit = parseInt(req.query.limit as string) || 200;
+    const limit = clampInt(req.query.limit as string, 200);
     res.json(getAlerts(limit, 'critical'));
   });
 
@@ -322,18 +334,18 @@ export function createDashboardServer(config: Config): express.Express {
          `"${(e.file_paths || []).join(';')}"`].join(',')
       ).join('\n');
       res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename="session-${req.params.id.substring(0,8)}.csv"`);
+      res.setHeader('Content-Disposition', `attachment; filename="session-${req.params.id.substring(0,8).replace(/[^a-zA-Z0-9-]/g, '')}.csv"`);
       return res.send(header + rows);
     }
 
-    res.setHeader('Content-Disposition', `attachment; filename="session-${req.params.id.substring(0,8)}.json"`);
+    res.setHeader('Content-Disposition', `attachment; filename="session-${req.params.id.substring(0,8).replace(/[^a-zA-Z0-9-]/g, '')}.json"`);
     res.json({ session, events, alerts, memory });
   });
 
   // Memory
   app.get('/api/memory', (req, res) => {
-    const limit = parseInt(req.query.limit as string) || 100;
-    const sessionId = req.query.session_id as string | undefined;
+    const limit = clampInt(req.query.limit as string, 100);
+    const sessionId = qstr(req.query.session_id);
     res.json(getMemoryOps(limit, sessionId));
   });
 
@@ -418,7 +430,14 @@ export function createDashboardServer(config: Config): express.Express {
     try {
       const stat = fs.statSync(resolved);
       if (!stat.isFile()) return res.status(400).json({ error: 'Not a file' });
-      if (stat.size > 200 * 1024) return res.json({ path: resolved, truncated: true, size: stat.size, content: fs.readFileSync(resolved, 'utf-8').substring(0, 200 * 1024) });
+      const MAX_READ = 200 * 1024;
+      if (stat.size > MAX_READ) {
+        // Read only the first 200KB via file descriptor to avoid loading entire large file
+        const buf = Buffer.alloc(MAX_READ);
+        const fd = fs.openSync(resolved, 'r');
+        try { fs.readSync(fd, buf, 0, MAX_READ, 0); } finally { fs.closeSync(fd); }
+        return res.json({ path: resolved, truncated: true, size: stat.size, content: buf.toString('utf-8') });
+      }
       res.json({ path: resolved, truncated: false, size: stat.size, content: fs.readFileSync(resolved, 'utf-8') });
     } catch {
       res.status(404).json({ error: 'File not found' });
@@ -631,14 +650,14 @@ export function createDashboardServer(config: Config): express.Express {
   app.get('/api/compliance/session/:id/signed', (req, res) => {
     const result = exportSignedSession(req.params.id);
     if (!result.session) return res.status(404).json({ error: 'Session not found' });
-    res.setHeader('Content-Disposition', `attachment; filename="signed-session-${req.params.id.substring(0, 8)}.json"`);
+    res.setHeader('Content-Disposition', `attachment; filename="signed-session-${req.params.id.substring(0, 8).replace(/[^a-zA-Z0-9-]/g, '')}.json"`);
     res.json(result);
   });
 
   // ── Guardrails ──
   app.get('/api/guardrails/violations', (req, res) => {
-    const sessionId = req.query.session_id as string | undefined;
-    const limit = parseInt(req.query.limit as string) || 100;
+    const sessionId = qstr(req.query.session_id);
+    const limit = clampInt(req.query.limit as string, 100);
     res.json(getGuardrailViolations(sessionId, limit));
   });
 
@@ -652,10 +671,10 @@ export function createDashboardServer(config: Config): express.Express {
     const status = req.query.status as string;
     if (status === 'pending') return res.json(getPendingInterventions());
     if (status === 'resolved') {
-      const limit = parseInt(req.query.limit as string) || 50;
+      const limit = clampInt(req.query.limit as string, 50);
       return res.json(getResolvedInterventions(limit));
     }
-    const limit = parseInt(req.query.limit as string) || 100;
+    const limit = clampInt(req.query.limit as string, 100);
     res.json(getAllInterventions(limit));
   });
 
@@ -834,7 +853,7 @@ export function createDashboardServer(config: Config): express.Express {
   app.get('/api/ide/file-activity', (req, res) => {
     const filePath = req.query.path as string;
     if (!filePath) return res.status(400).json({ error: 'path required' });
-    const limit = parseInt(req.query.limit as string) || 50;
+    const limit = clampInt(req.query.limit as string, 50);
     res.json(getFileActivity(filePath, limit));
   });
 
@@ -849,7 +868,7 @@ export function createDashboardServer(config: Config): express.Express {
   // ── Prompt History ──
 
   app.get('/api/prompts', (req, res) => {
-    const limit = parseInt(req.query.limit as string) || 50;
+    const limit = clampInt(req.query.limit as string, 50);
     res.json(getRecentPrompts(limit));
   });
 
@@ -860,7 +879,7 @@ export function createDashboardServer(config: Config): express.Express {
   app.get('/api/prompts/search', (req, res) => {
     const q = req.query.q as string;
     if (!q || q.length < 2) return res.status(400).json({ error: 'Query must be at least 2 chars' });
-    const limit = parseInt(req.query.limit as string) || 50;
+    const limit = clampInt(req.query.limit as string, 50);
     res.json(searchPrompts(q, limit));
   });
 
@@ -869,7 +888,7 @@ export function createDashboardServer(config: Config): express.Express {
   });
 
   app.get('/api/projects/:name/prompts', (req, res) => {
-    const limit = parseInt(req.query.limit as string) || 100;
+    const limit = clampInt(req.query.limit as string, 100);
     res.json(getProjectPrompts(req.params.name, limit));
   });
 

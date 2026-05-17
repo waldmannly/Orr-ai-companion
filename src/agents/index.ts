@@ -312,7 +312,8 @@ function minimatchLite(target: string, pattern: string): boolean {
   if (pattern.startsWith('**/')) return target.includes(pattern.slice(3));
   if (pattern.endsWith('/**')) return target.startsWith(pattern.slice(0, -3));
   if (pattern.includes('*')) {
-    const re = new RegExp('^' + pattern.replace(/\*/g, '.*') + '$');
+    // Escape regex special chars EXCEPT *, then convert * to .*
+    const re = new RegExp('^' + pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$');
     return re.test(target);
   }
   return target === pattern;

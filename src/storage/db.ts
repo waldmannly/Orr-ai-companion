@@ -865,6 +865,8 @@ export function getEventsFiltered(opts: {
   riskLevel?: string; eventType?: string; search?: string;
   limit?: number; offset?: number;
 }): TrackerEvent[] {
+  const limit = Math.min(Math.max(opts.limit || 200, 1), 5000);
+  const offset = Math.max(opts.offset || 0, 0);
   let sql = 'SELECT * FROM events WHERE 1=1';
   const params: unknown[] = [];
   if (opts.sessionId) { sql += ' AND session_id = ?'; params.push(opts.sessionId); }
@@ -874,7 +876,7 @@ export function getEventsFiltered(opts: {
   if (opts.eventType) { sql += ' AND event_type = ?'; params.push(opts.eventType); }
   if (opts.search) { const like = `%${opts.search}%`; sql += ' AND (summary LIKE ? OR command LIKE ? OR file_paths LIKE ?)'; params.push(like, like, like); }
   sql += ' ORDER BY timestamp DESC LIMIT ? OFFSET ?';
-  params.push(opts.limit || 200, opts.offset || 0);
+  params.push(limit, offset);
   return (db.prepare(sql).all(...params) as Array<Record<string, unknown>>).map(hydrateEvent);
 }
 

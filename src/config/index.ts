@@ -210,6 +210,7 @@ export function mergeConfig(raw: Record<string, unknown>): Config {
     alerts: { ...DEFAULTS.alerts, ...sanitizeKeys((safe.alerts as Record<string, unknown> || {})) },
     notifications: {
       slack: { ...DEFAULTS.notifications.slack, ...sanitizeKeys((rawNotif.slack as Record<string, unknown> || {})) },
+      teams: { ...DEFAULTS.notifications.teams, ...sanitizeKeys((rawNotif.teams as Record<string, unknown> || {})) },
       webhook: { ...DEFAULTS.notifications.webhook, ...sanitizeKeys((rawNotif.webhook as Record<string, unknown> || {})) },
       desktop: { ...DEFAULTS.notifications.desktop, ...sanitizeKeys((rawNotif.desktop as Record<string, unknown> || {})) },
     },

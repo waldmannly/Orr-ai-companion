@@ -7183,6 +7183,86 @@ test('isAllowedWebhookUrl blocks IPv6-mapped IPv4 addresses', () => {
   assert.strictEqual(isAllowedWebhookUrl('https://[::ffff:169.254.169.254]/meta'), false);
 });
 
+// ═══ 42. Security Hardening — Round 5 ═══
+console.log('═══ 42. Security Hardening — Round 5 ═══');
+
+test('executeWidgetQuery blocks implicit cross-joins via comma-separated FROM', () => {
+  _resetPlugins();
+  const pluginDir = path.join(tmpDir, 'sec-crossjoin-plugin');
+  fs.mkdirSync(pluginDir, { recursive: true });
+  const manifest = {
+    id: 'sec-crossjoin', name: 'Cross-join Test', version: '1.0.0', description: 'test',
+    widgets: [
+      { id: 'w-cross3', title: '3 tables', type: 'number', query: 'SELECT COUNT(*) FROM events, sessions, alerts' },
+      { id: 'w-cross2', title: '2 tables', type: 'number', query: 'SELECT COUNT(*) FROM events, sessions' },
+      { id: 'w-single', title: '1 table', type: 'number', query: 'SELECT COUNT(*) as c FROM events' },
+    ]
+  };
+  fs.writeFileSync(path.join(pluginDir, 'manifest.json'), JSON.stringify(manifest));
+  loadPlugin(path.join(pluginDir, 'manifest.json'));
+
+  const db = getDb();
+  // 3 comma-separated tables should be rejected
+  assert.throws(() => executeWidgetQuery('sec-crossjoin', 'w-cross3', db), /limited to 2 tables/);
+  // 2 tables is okay
+  const r2 = executeWidgetQuery('sec-crossjoin', 'w-cross2', db);
+  assert.ok(r2);
+  // Single table is okay
+  const r1 = executeWidgetQuery('sec-crossjoin', 'w-single', db);
+  assert.ok(r1);
+  _resetPlugins();
+});
+
+test('checkAgentAuthority with regex special chars in glob pattern does not throw', () => {
+  // Tests the minimatchLite regex injection fix — patterns with special chars must not crash
+  const testSession = 'auth-sess';
+  upsertAgentNode({
+    id: 'regex-agent', session_id: testSession, parent_id: 'main',
+    provider: 'copilot', trust_level: 'trusted', scope_limit: '',
+    first_seen: new Date().toISOString(),
+  });
+  // Set denied scopes with regex special chars (e.g. parentheses, brackets)
+  setAgentScopes('regex-agent', testSession, ['src/safe/**'], ['test.(spec).ts', 'src/[bad]/*']);
+  
+  // This should NOT throw, even though the pattern has regex special chars
+  const result1 = checkAgentAuthority('regex-agent', testSession, { type: 'read', target: 'test.(spec).ts' });
+  assert.ok(result1, 'Should be denied — target matches denied scope with special chars');
+  
+  const result2 = checkAgentAuthority('regex-agent', testSession, { type: 'read', target: 'src/[bad]/file.js' });
+  assert.ok(result2, 'Should be denied — target matches denied scope with brackets');
+  
+  // Allowed scope should still work
+  const result3 = checkAgentAuthority('regex-agent', testSession, { type: 'read', target: 'src/safe/index.ts' });
+  assert.strictEqual(result3, null, 'Should be allowed — matches allowed scope');
+});
+
+test('queueBlockedCommand truncates oversized original_command', () => {
+  const longCmd = 'x'.repeat(20000);
+  const cmd = queueBlockedCommand({
+    session_id: 'truncate-test-sess',
+    event_id: 1,
+    provider: 'vscode-copilot',
+    project_name: 'test',
+    action_type: 'terminal_command',
+    original_command: longCmd,
+    rule: 'test-rule',
+    severity: 'danger',
+    message: 'too long',
+  });
+  assert.ok(cmd.original_command.length <= 10100, 'Command should be truncated to ~10000 chars');
+  assert.ok(cmd.original_command.includes('…[truncated]'), 'Should have truncation marker');
+});
+
+test('mergeConfig includes teams in notifications', () => {
+  const cfg = mergeConfig({
+    notifications: {
+      teams: { enabled: true, webhookUrl: 'https://outlook.office.com/webhook/test' }
+    }
+  });
+  assert.strictEqual(cfg.notifications.teams.enabled, true);
+  assert.strictEqual(cfg.notifications.teams.webhookUrl, 'https://outlook.office.com/webhook/test');
+});
+
 // ══════════════════════════════════════════════════
 console.log('');
 console.log('══════════════════════════════════════════════════');
