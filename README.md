@@ -85,33 +85,17 @@ cp config.example.json config.json
   "alertRules": {
     "destructive_commands": { "enabled": true, "minSeverity": "danger" },
     "sensitive_files": { "enabled": true, "minSeverity": "warn" },
-    "memory_injection": { "enabled": true, "minSeverity": "warn" },
-    "deployment": { "enabled": true, "minSeverity": "danger" },
-    "ssh_remote": { "enabled": true, "minSeverity": "danger", "dedup": true },
-    "data_exfiltration": { "enabled": true, "minSeverity": "warn" },
-    "suspicious_download": { "enabled": true, "minSeverity": "warn", "dedup": true },
-    "supply_chain": { "enabled": true, "minSeverity": "warn" },
-    "force_push": { "enabled": true, "minSeverity": "warn" }
+    "supply_chain": { "enabled": true, "minSeverity": "warn" }
   },
   "notifications": {
     "slack": { "enabled": false, "url": "", "minSeverity": "warn" },
-    "webhook": { "enabled": false, "url": "", "minSeverity": "danger" },
-    "teams": { "enabled": false, "url": "", "minSeverity": "warn" },
     "desktop": { "enabled": true, "minSeverity": "danger" }
   },
-  "guardrails": {
-    "sessionKill": { "enabled": false },
-    "dailyTokenLimit": 0,
-    "networkAllowlist": []
-  },
-  "tokenBudget": { "maxPerSession": 0, "maxPerDay": 0, "action": "warn" },
   "retention": { "maxAgeDays": 90, "maxDbSizeMB": 500 }
 }
 ```
 
-> **Tip:** Set `"dedup": false` on `ssh_remote` if you want every SSH alert (useful for local-only agents that should never connect remotely).
-
-See **[docs/USAGE.md](docs/USAGE.md)** for the full configuration reference.
+See **[docs/USAGE.md](docs/USAGE.md)** for the full configuration reference with all 14+ alert rules, guardrails, token budgets, and notification options.
 
 ---
 
@@ -164,9 +148,9 @@ See **[docs/USAGE.md](docs/USAGE.md)** for the full configuration reference.
 
 ```bash
 npm run build              # Compile TypeScript
-npm run test:unit          # 774 unit tests
-npm start &                # Start server
-npm test                   # 329 UI/API tests (requires server)
+npm test                   # 838 unit tests (no server needed)
+npm run test:ui            # 329 UI/API tests (requires running server)
+npm run test:coverage      # Unit tests with c8 coverage report
 npm run dev                # Build + start in one step
 ```
 
@@ -177,7 +161,7 @@ npm run dev                # Build + start in one step
 - **Localhost only** — the dashboard binds to `127.0.0.1`, never exposed to the network
 - **All data stays local** — SQLite database in `./data/`, no cloud, no telemetry
 - **No secrets stored** — reads agent logs but doesn't store API keys or tokens
-- **Team API keys** are stored as bcrypt hashes, never in plaintext
+- **Team API keys** are stored as SHA-256 hashes, never in plaintext
 - **Passive architecture** — tails logs AFTER agents write them; never intercepts or modifies agent behavior
 
 ---
@@ -189,8 +173,10 @@ npm run dev                # Build + start in one step
 | **[docs/USAGE.md](docs/USAGE.md)** | Full feature guide, tips, and configuration reference |
 | **[docs/VISION.md](docs/VISION.md)** | Product vision and adoption strategy |
 | **[docs/ROADMAP.md](docs/ROADMAP.md)** | Development roadmap |
-| **[docs/PR-COMMENT-BOT.md](docs/PR-COMMENT-BOT.md)** | Design doc for PR comment bot (planned) |
+| **[docs/PR-COMMENT-BOT.md](docs/PR-COMMENT-BOT.md)** | PR comment bot — auto-post AI activity summaries on PRs |
 | **[docs/DATA-ANALYSIS.md](docs/DATA-ANALYSIS.md)** | Data analysis capabilities |
+| **[docs/SECURITY-AUDIT.md](docs/SECURITY-AUDIT.md)** | 6-round security audit trail |
+| **[docs/ALPHA-READINESS.md](docs/ALPHA-READINESS.md)** | Pre-ship readiness report |
 
 ---
 
