@@ -4,6 +4,8 @@
 
 AI agents run dozens of tool calls per session — reading files, writing code, executing commands, accessing the network. AL Companion Tracker watches all of it silently, flags risky actions, and gives you a dashboard to understand exactly what happened.
 
+> 📖 **New here?** Check out the **[Usage Guide](docs/USAGE.md)** for a full walkthrough of every feature and tips for getting the most out of the tracker.
+
 ---
 
 ## Why This Exists
@@ -14,64 +16,23 @@ When something breaks, you have no way to trace what happened. AL Companion Trac
 
 ---
 
-## Features
+## Features at a Glance
 
-### Real-Time Monitoring
-- **Auto-discovers AI agent sessions** from VS Code Copilot, Claude Code, and Gemini CLI
-- **Parses every tool call** — file reads/writes, terminal commands, web fetches, memory operations
-- **Live event stream** via SSE — see activity as it happens
-- **Zero configuration required** — works out of the box
+| Category | Highlights |
+|----------|-----------|
+| **Monitoring** | Auto-discovers Copilot, Claude Code, Gemini CLI sessions; live SSE event stream; zero-config |
+| **Risk & Alerts** | 5 severity tiers (info → critical); 14+ alert rules; supply chain / typosquatting detection; alert dedup with configurable toggle |
+| **Threats** | Dedicated threat view for confirmed malicious activity — reverse shells, crypto miners, credential harvesters, C2, disk wipes |
+| **Guardrails** | Block dangerous commands; approval queue; auto-deny timeout; session kill on critical; token budgets; network allowlist |
+| **Trust Scores** | Per-provider grades (A–F) based on historical behavior |
+| **Dashboard** | 23-page SPA with live updates, phone-sized desktop layout |
+| **Policy Engine** | Three-tier (individual → team → enterprise); strictest-wins merge; field-level locking |
+| **Compliance** | Tamper-evident hash chain; signed exports; SOC2/ISO evidence generation |
+| **Supply Chain** | Typosquatting detection across npm, pip, cargo, gem, go, composer, dotnet; dependency confusion; scope confusion |
+| **Integrations** | Slack, Microsoft Teams, webhooks, desktop notifications, VS Code extension |
+| **CLI** | Full headless operation: start, status, replay, export, sessions, config, rules, compact, autostart |
 
-### Risk Detection & Alerts
-- **Classifies every event** by risk level: info, watch, warn, danger
-- **10+ built-in alert rules**: destructive commands, sensitive file access, deployment actions, SSH/remote access, data exfiltration, force pushes, memory injection, suspicious downloads
-- **Alert burst detection** — escalates when multiple warnings fire in rapid succession
-- **Configurable per-rule thresholds** — enable/disable rules, set minimum severity
-
-### Dashboard (22 Pages)
-- **Home** — session overview, alert counts, daily activity charts
-- **Sessions** — browse all sessions, search, filter by project
-- **Timeline** — event-by-event replay with risk highlighting
-- **Security** — alert review, bulk acknowledge, severity filters
-- **Memory** — track AI memory reads/writes/deletes across scopes
-- **Projects** — per-project stats and session grouping
-- **Trust** — provider trust scores based on historical behavior
-- **Guardrails** — rule violations, blocked actions, guardrail config
-- **Audit/Compliance** — hash chain verification, evidence reports, signed session exports
-- **Prompts** — full prompt history, search, crash recovery context
-- **Command Queue** — blocked commands awaiting approval/denial
-- **Export** — CSV/JSON export, incident reports, weekly summaries
-- **Agents** — sub-agent delegation trees, authority scopes, violation tracking
-- **Correlation** — cross-session analysis, interleaved timelines
-- **Analysis** — memory content analysis, injection scoring
-- **Plugins** — community plugin system for custom detection rules
-- **Team** — multi-user management, shared rules, API key auth
-- **Response** — automated response actions for detected patterns
-- **Replay** — session replay with event scrubbing
-- **Tasks** — linked session tracking by project + branch
-- **Policy** — enterprise policy engine (individual → team → enterprise tiers)
-- **Settings** — all configuration in one place
-
-### Guardrails & Intervention
-- **Block dangerous commands** before they execute
-- **Approval queue** for high-risk actions
-- **Auto-deny timeout** for unreviewed interventions
-- **Token budget limits** per session and per day
-
-### Enterprise Policy Engine
-- **Three-tier policy model**: individual → team → enterprise
-- **Strictest-wins merge strategy** — org policies override local settings
-- **Field-level locking** — enterprise can lock specific guardrail settings
-- **Policy violation tracking** and metrics
-
-### Additional Capabilities
-- **CLI tool** for headless operation and scripting
-- **Slack and webhook notifications** for alerts
-- **Community rule packs** — shareable detection rule sets
-- **Custom provider support** — add any JSONL-based agent log format
-- **Data retention** — automatic pruning of old events (default: 90 days)
-- **SQLite storage** with WAL mode — fast, portable, zero-dependency
-- **Compliance hash chain** — tamper-evident event log
+See the **[full feature list →](docs/USAGE.md)**
 
 ---
 
@@ -85,17 +46,10 @@ When something breaks, you have no way to trace what happened. AL Companion Trac
 ### Install & Run
 
 ```bash
-# Clone the repo
 git clone https://github.com/your-username/al-companion-tracker.git
 cd al-companion-tracker
-
-# Install dependencies
 npm install
-
-# Build
 npm run build
-
-# Start the tracker
 npm start
 ```
 
@@ -117,114 +71,43 @@ Open the dashboard URL in your browser. That's it.
 
 ---
 
-## CLI Usage
-
-```bash
-# Start tracker (watcher + dashboard)
-al-tracker start
-
-# Check current session status
-al-tracker status
-
-# Replay last 10 minutes of activity
-al-tracker replay 10
-
-# Export last 7 days as CSV
-al-tracker export --format=csv --output=events.csv
-
-# List recent sessions
-al-tracker sessions
-
-# View or update config
-al-tracker config
-al-tracker config dashboard.port=4000
-
-# Manage detection rule packs
-al-tracker rules list
-al-tracker rules add ./my-rules.pack.json
-
-# Auto-start on login
-al-tracker autostart enable
-al-tracker autostart status
-```
-
----
-
 ## Configuration
 
 All configuration lives in `config.json` in the project root. The tracker works with zero configuration — every setting has sensible defaults.
 
-### Example `config.json`
-
 ```json
 {
-  "dashboard": {
-    "port": 3847,
-    "host": "127.0.0.1"
-  },
+  "dashboard": { "port": 3847, "host": "127.0.0.1" },
   "alertRules": {
     "destructive_commands": { "enabled": true, "minSeverity": "danger" },
     "sensitive_files": { "enabled": true, "minSeverity": "warn" },
     "memory_injection": { "enabled": true, "minSeverity": "warn" },
     "deployment": { "enabled": true, "minSeverity": "danger" },
-    "ssh_remote": { "enabled": true, "minSeverity": "danger" },
+    "ssh_remote": { "enabled": true, "minSeverity": "danger", "dedup": true },
     "data_exfiltration": { "enabled": true, "minSeverity": "warn" },
+    "suspicious_download": { "enabled": true, "minSeverity": "warn", "dedup": true },
+    "supply_chain": { "enabled": true, "minSeverity": "warn" },
     "force_push": { "enabled": true, "minSeverity": "warn" }
   },
   "notifications": {
     "slack": { "enabled": false, "url": "", "minSeverity": "warn" },
     "webhook": { "enabled": false, "url": "", "minSeverity": "danger" },
+    "teams": { "enabled": false, "url": "", "minSeverity": "warn" },
     "desktop": { "enabled": true, "minSeverity": "danger" }
   },
-  "sensitiveFiles": {
-    "patterns": ["**/.env*", "**/*.pem", "**/*.key", "**/credentials*"],
-    "exactPaths": []
+  "guardrails": {
+    "sessionKill": { "enabled": false },
+    "dailyTokenLimit": 0,
+    "networkAllowlist": []
   },
-  "retention": {
-    "maxAgeDays": 90,
-    "maxDbSizeMB": 500
-  },
-  "tokenBudget": {
-    "maxPerSession": 0,
-    "maxPerDay": 0,
-    "action": "warn"
-  }
+  "tokenBudget": { "maxPerSession": 0, "maxPerDay": 0, "action": "warn" },
+  "retention": { "maxAgeDays": 90, "maxDbSizeMB": 500 }
 }
 ```
 
-### Alert Rules
+> **Tip:** Set `"dedup": false` on `ssh_remote` if you want every SSH alert (useful for local-only agents that should never connect remotely).
 
-| Rule | Default | What It Detects |
-|------|:---:|---|
-| `destructive_commands` | danger | `rm -rf`, `git reset --hard`, `DROP TABLE`, etc. |
-| `sensitive_files` | warn | Access to `.env`, `.pem`, `.key`, credentials |
-| `memory_injection` | warn | Prompt injection patterns in AI memory writes |
-| `deployment` | danger | `npm publish`, `kubectl apply`, `terraform apply`, deploy scripts |
-| `ssh_remote` | danger | SSH, SCP, rsync, netcat commands |
-| `data_exfiltration` | warn | `curl POST` with data, piping to network, encoded data transfer |
-| `force_push` | warn | `git push --force` / `git push -f` |
-| `suspicious_download` | warn | Downloading executables, packages from non-default registries |
-| `memory_operations` | off | All AI memory writes (noisy — enable for high-security environments) |
-| `network_access` | off | All network access (very noisy) |
-| `file_operations` | off | All file read/write operations |
-| `git_operations` | off | All git operations |
-| `subagent_spawn` | off | Sub-agent spawning |
-
-### Custom Providers
-
-Add any JSONL-based agent log format:
-
-```json
-{
-  "customProviders": [
-    {
-      "id": "my-agent",
-      "name": "My Custom Agent",
-      "paths": ["~/.my-agent/logs"]
-    }
-  ]
-}
-```
+See **[docs/USAGE.md](docs/USAGE.md)** for the full configuration reference.
 
 ---
 
@@ -235,38 +118,38 @@ Add any JSONL-based agent log format:
 │  AI Agents (Copilot, Claude, Gemini, custom)     │
 │  Write transcript logs to disk                   │
 └──────────────┬───────────────────────────────────┘
-               │ file watch
+               │ file watch (passive tail)
 ┌──────────────▼───────────────────────────────────┐
 │  Watcher / Log Tailer                            │
-│  • Discovers transcript files                    │
+│  • Discovers transcript files automatically      │
 │  • Tails from last-known offset (persistent)     │
-│  • Parses events via provider-specific parsers   │
-│  • Deduplicates at DB level                      │
+│  • Provider-specific parsers (Copilot/Claude/    │
+│    Gemini/generic JSONL)                         │
 └──────────────┬───────────────────────────────────┘
                │
 ┌──────────────▼───────────────────────────────────┐
 │  Processing Pipeline                             │
-│  • Risk classification (info/watch/warn/danger)  │
-│  • Alert evaluation (10+ rule categories)        │
-│  • Guardrail enforcement                         │
+│  • Risk classification (5 levels)                │
+│  • Alert evaluation (14+ rule categories)        │
+│  • Supply chain / typosquatting detection        │
+│  • Guardrail enforcement + session kill          │
 │  • Trust score updates                           │
 │  • Compliance hash chain                         │
 │  • Plugin & rule pack evaluation                 │
-│  • Auto-response actions                         │
 └──────────────┬───────────────────────────────────┘
                │
 ┌──────────────▼───────────────────────────────────┐
 │  SQLite Database (WAL mode)                      │
 │  • Events, sessions, alerts, memory ops          │
-│  • Prompts, commands, baselines                  │
-│  • Team users, shared rules, activity log        │
+│  • Prompts, commands, baselines, policies        │
 │  • Tailer offsets for restart resilience          │
+│  • Auto-compaction (VACUUM)                      │
 └──────────────┬───────────────────────────────────┘
                │
 ┌──────────────▼───────────────────────────────────┐
 │  Dashboard (Express + Single-Page HTML)          │
-│  • 22 pages, SSE live updates                    │
-│  • REST API for all data                         │
+│  • 23 pages, SSE live updates                    │
+│  • 70+ REST API endpoints                        │
 │  • Localhost-only (127.0.0.1:3847)               │
 └──────────────────────────────────────────────────┘
 ```
@@ -276,58 +159,11 @@ Add any JSONL-based agent log format:
 ## Development
 
 ```bash
-# Build
-npm run build
-
-# Run unit tests (723 tests)
-npm run test:unit
-
-# Run unit tests with coverage report
-npm run test:coverage
-
-# Run UI/API tests (329 tests, requires running server)
-npm start &          # start the server first
-npm test             # then run UI tests
-
-# Dev mode (build + start)
-npm run dev
-```
-
-### Project Structure
-
-```
-src/
-├── index.ts              # Entry point + CLI dispatch
-├── cli.ts                # CLI subcommands
-├── config/               # Configuration loading + merging
-├── storage/db.ts         # SQLite schema, migrations, CRUD
-├── watcher/              # File watcher + log tailer
-├── parser/               # Event type definitions + line parsing
-├── providers/            # Agent-specific log parsers
-│   ├── vscode-copilot.ts
-│   ├── claude-code.ts
-│   ├── gemini-cli.ts
-│   └── generic.ts
-├── dashboard/
-│   ├── server.ts         # Express API (70+ endpoints)
-│   └── public/index.html # Single-page dashboard app
-├── alerts/engine.ts      # Alert rule evaluation
-├── risk/classifier.ts    # Risk classification with signals
-├── guardrails/           # Guardrail enforcement + intervention queue
-├── trust/                # Provider trust scoring
-├── compliance/           # Hash chain + evidence reports
-├── prompts/              # Prompt history + crash recovery
-├── commands/             # Blocked command queue
-├── agents/               # Sub-agent authority tracking
-├── correlation/          # Cross-session analysis
-├── analysis/             # Memory analysis + injection scoring
-├── plugins/              # Community plugin system
-├── team/                 # Multi-user management
-├── response/             # Automated response actions
-├── policy/               # Enterprise policy engine
-├── rules/packs.ts        # Community rule pack loader
-├── notifications/        # Slack, webhook, desktop notifications
-└── export/               # CSV/JSON export + reports
+npm run build              # Compile TypeScript
+npm run test:unit          # 774 unit tests
+npm start &                # Start server
+npm test                   # 329 UI/API tests (requires server)
+npm run dev                # Build + start in one step
 ```
 
 ---
@@ -335,9 +171,22 @@ src/
 ## Security Notes
 
 - **Localhost only** — the dashboard binds to `127.0.0.1`, never exposed to the network
-- **All data stays local** — SQLite database in `./data/`, no cloud services, no telemetry
-- **No secrets stored** — the tracker reads agent logs but doesn't store API keys or tokens
+- **All data stays local** — SQLite database in `./data/`, no cloud, no telemetry
+- **No secrets stored** — reads agent logs but doesn't store API keys or tokens
 - **Team API keys** are stored as bcrypt hashes, never in plaintext
+- **Passive architecture** — tails logs AFTER agents write them; never intercepts or modifies agent behavior
+
+---
+
+## Documentation
+
+| Doc | Description |
+|-----|-------------|
+| **[docs/USAGE.md](docs/USAGE.md)** | Full feature guide, tips, and configuration reference |
+| **[docs/VISION.md](docs/VISION.md)** | Product vision and adoption strategy |
+| **[docs/ROADMAP.md](docs/ROADMAP.md)** | Development roadmap |
+| **[docs/PR-COMMENT-BOT.md](docs/PR-COMMENT-BOT.md)** | Design doc for PR comment bot (planned) |
+| **[docs/DATA-ANALYSIS.md](docs/DATA-ANALYSIS.md)** | Data analysis capabilities |
 
 ---
 
