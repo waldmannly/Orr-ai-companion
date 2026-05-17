@@ -22,6 +22,25 @@ export interface NotificationsConfig {
   desktop: { enabled: boolean; minSeverity: 'watch' | 'warn' | 'danger' };
 }
 
+export interface PRBotConfig {
+  enabled: boolean;
+  platform: 'github' | 'gitlab' | 'bitbucket';
+  /** PAT or app token — prefer AL_TRACKER_PR_TOKEN env var */
+  token: string;
+  /** Default repo (owner/repo). Can be overridden per request. */
+  repo: string;
+  /** Minimum alert severity to include in the comment */
+  minSeverity: 'watch' | 'warn' | 'danger' | 'critical';
+  /** Include per-session breakdown */
+  includeSessions: boolean;
+  /** Include trust score */
+  includeTrustScore: boolean;
+  /** Include individual alerts in the comment */
+  includeAlerts: boolean;
+  /** Only report on specific providers (empty = all) */
+  filterProviders: string[];
+}
+
 export interface Config {
   watchPaths: string[];
   sensitiveFiles: {
@@ -77,6 +96,7 @@ export interface Config {
     /** Action when budget exceeded: 'warn' or 'kill' */
     action: 'warn' | 'kill';
   };
+  prBot: PRBotConfig;
 }
 
 const DEFAULT_RULE: AlertRuleConfig = { enabled: true, minSeverity: 'warn' };
@@ -122,6 +142,17 @@ const DEFAULTS: Config = {
   guardrails: GUARDRAILS_DEFAULTS,
   rulePacksDir: '',
   tokenBudget: { maxPerSession: 0, maxPerDay: 0, action: 'warn' },
+  prBot: {
+    enabled: false,
+    platform: 'github',
+    token: '',
+    repo: '',
+    minSeverity: 'warn',
+    includeSessions: true,
+    includeTrustScore: true,
+    includeAlerts: true,
+    filterProviders: [],
+  },
 };
 
 let configPath = '';
@@ -165,6 +196,7 @@ export function mergeConfig(raw: Record<string, unknown>): Config {
     guardrails: { ...GUARDRAILS_DEFAULTS, ...rawGuardrails },
     dashboard: { ...DEFAULTS.dashboard, ...(raw.dashboard as Record<string, unknown> || {}) },
     retention: { ...DEFAULTS.retention, ...(raw.retention as Record<string, unknown> || {}) },
+    prBot: { ...DEFAULTS.prBot, ...(raw.prBot as Record<string, unknown> || {}) },
   } as Config;
 }
 

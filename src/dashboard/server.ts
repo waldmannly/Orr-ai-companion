@@ -68,6 +68,8 @@ import {
   getPolicyViolations, getPolicyMetrics, getPolicySummary, getPolicyHistory,
   recordPolicyViolation, recordPolicyMetric,
 } from '../policy';
+import { collectPRData, generatePRComment, PRCommentRequest } from '../pr-bot';
+import { postOrUpdateComment, getPRBranch } from '../pr-bot/github';
 
 // SSE — broadcast events to connected dashboard clients
 const sseClients = new Set<express.Response>();
@@ -1121,6 +1123,57 @@ export function createDashboardServer(config: Config): express.Express {
 
   app.get('/api/policy/effective-guardrails', (_req, res) => {
     res.json(mergeGuardrails(config.guardrails));
+  });
+
+  // ── PR Comment Bot ──
+
+  // Generate a preview of the PR comment (does not post to GitHub)
+  app.get('/api/pr-comment/preview', (req, res) => {
+    try {
+      const branch = req.query.branch as string;
+      if (!branch) return res.status(400).json({ error: 'branch query param is required' });
+      const projectName = req.query.project as string | undefined;
+      const request: PRCommentRequest = { branch, projectName };
+      const data = collectPRData(request, config);
+      const comment = generatePRComment(data, config);
+      res.json({ branch, sessions: data.sessions.length, comment, data });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Post or update a PR comment on GitHub/GitLab/Bitbucket
+  app.post('/api/pr-comment', async (req, res) => {
+    try {
+      const { branch, repo, prNumber, platform, projectName } = req.body || {};
+      if (!prNumber) return res.status(400).json({ error: 'prNumber is required' });
+      const targetRepo = repo || config.prBot.repo;
+      if (!targetRepo) return res.status(400).json({ error: 'repo is required (set prBot.repo in config or pass in body)' });
+      const targetPlatform = platform || config.prBot.platform;
+
+      // If no branch provided, fetch it from the PR itself
+      let targetBranch = branch as string;
+      if (!targetBranch) {
+        if (targetPlatform === 'github') {
+          targetBranch = await getPRBranch(targetRepo, prNumber, config);
+        } else {
+          return res.status(400).json({ error: 'branch is required for non-GitHub platforms (or provide prNumber on GitHub to auto-detect)' });
+        }
+      }
+
+      const request: PRCommentRequest = { branch: targetBranch, repo: targetRepo, prNumber, platform: targetPlatform, projectName };
+      const data = collectPRData(request, config);
+      const comment = generatePRComment(data, config);
+
+      if (targetPlatform === 'github') {
+        const result = await postOrUpdateComment(targetRepo, prNumber, comment, config);
+        res.json({ ok: true, ...result, branch: targetBranch, sessions: data.sessions.length });
+      } else {
+        res.status(501).json({ error: `Platform '${targetPlatform}' adapter not yet implemented. Use preview endpoint or GitHub.` });
+      }
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
   });
 
   // Fallback — serve index.html for SPA routes

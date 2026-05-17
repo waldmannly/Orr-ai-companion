@@ -33,6 +33,7 @@ export function runCli(args: string[]) {
     case 'rules': return cliRules(rest);
     case 'autostart': return cliAutoStart(rest);
     case 'compact': return cliCompact();
+    case 'pr-comment': return cliPRComment(rest);
     case 'help': case '--help': case '-h': return cliHelp();
     case 'version': case '--version': case '-v':
       console.log(require('../package.json').version);
@@ -59,6 +60,7 @@ function cliHelp() {
     config [key=val]   Show or update configuration
     rules <subcommand> Manage community detection rule packs
     compact            Compact the database (VACUUM + WAL checkpoint)
+    pr-comment         Generate or post a PR comment with AI activity summary
     help               Show this help message
 
   Export options:
@@ -82,6 +84,11 @@ function cliHelp() {
     al-tracker replay 10
     al-tracker export --format=csv --output=events.csv
     al-tracker rules add ./my-rules.pack.json
+
+  PR Comment:
+    al-tracker pr-comment --branch=feature/foo
+    al-tracker pr-comment --branch=feature/foo --pr=42 --repo=owner/repo
+    al-tracker pr-comment --pr=42 --repo=owner/repo   (auto-detects branch)
 `);
 }
 
@@ -341,6 +348,73 @@ function cliCompact() {
   console.log(`  After:  ${(after / 1048576).toFixed(1)} MB`);
   console.log(`  Saved:  ${savedMB} MB`);
   console.log('  ✓ Done');
+}
+
+function cliPRComment(args: string[]) {
+  const { initDb } = require('./storage/db');
+  const { collectPRData, generatePRComment } = require('./pr-bot');
+  const { postOrUpdateComment, getPRBranch } = require('./pr-bot/github');
+
+  // Parse args: --branch=x --pr=n --repo=owner/repo --project=name --post
+  const opts: Record<string, string> = {};
+  let doPost = false;
+  for (const a of args) {
+    if (a === '--post') { doPost = true; continue; }
+    const m = a.match(/^--(\w[\w-]*)=(.+)$/);
+    if (m) opts[m[1]] = m[2];
+  }
+
+  const config = loadConfig();
+  initDb();
+
+  const prNumber = opts.pr ? parseInt(opts.pr) : undefined;
+  const repo = opts.repo || config.prBot.repo;
+  const projectName = opts.project;
+
+  // Resolve branch: explicit, or auto-detect from GitHub PR
+  const resolveBranch = async (): Promise<string> => {
+    if (opts.branch) return opts.branch;
+    if (prNumber && repo && config.prBot.platform === 'github') {
+      console.log(`  Fetching branch for PR #${prNumber} from ${repo}...`);
+      return getPRBranch(repo, prNumber, config);
+    }
+    console.error('  Error: --branch is required (or provide --pr + --repo for auto-detection on GitHub)');
+    process.exit(1);
+  };
+
+  resolveBranch().then(async (branch) => {
+    const request = { branch, repo, prNumber, projectName };
+    const data = collectPRData(request, config);
+    const comment = generatePRComment(data, config);
+
+    if (data.sessions.length === 0) {
+      console.log(`\n  No AI agent sessions found for branch: ${branch}`);
+      if (projectName) console.log(`  (filtered to project: ${projectName})`);
+      return;
+    }
+
+    console.log(`\n  Branch: ${branch}`);
+    console.log(`  Sessions: ${data.sessions.length}`);
+    console.log(`  Providers: ${data.providers.join(', ')}`);
+    console.log(`  Events: ${data.totalEvents} | Danger: ${data.dangerCount} | Warn: ${data.warnCount} | Critical: ${data.criticalCount}`);
+    console.log(`  Alerts: ${data.alerts.length}`);
+
+    if (doPost && prNumber && repo) {
+      console.log(`\n  Posting to ${repo}#${prNumber}...`);
+      const result = await postOrUpdateComment(repo, prNumber, comment, config);
+      console.log(`  ✓ Comment ${result.action} (ID: ${result.commentId})`);
+    } else if (doPost && !prNumber) {
+      console.error('  Error: --pr is required to post. Use --pr=<number> --repo=<owner/repo> --post');
+    } else {
+      console.log('\n--- PR Comment Preview ---\n');
+      console.log(comment);
+      console.log('\n--- End Preview ---');
+      console.log('\n  Add --post --pr=<number> --repo=<owner/repo> to post to GitHub.');
+    }
+  }).catch((e: Error) => {
+    console.error(`  Error: ${e.message}`);
+    process.exit(1);
+  });
 }
 
 // ── HTTP Helpers ──
