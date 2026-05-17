@@ -1,6 +1,7 @@
 import express from 'express';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as crypto from 'crypto';
 import { execFile } from 'child_process';
 import { Config, saveConfig, mergeConfig, getConfigPath } from '../config';
 import {
@@ -121,13 +122,16 @@ export function createDashboardServer(config: Config): express.Express {
     return val as string | undefined;
   }
 
-  // ── Security headers ──
+  // ── Security headers (CSP with per-request nonce) ──
   app.use((_req, res, next) => {
+    // Generate a cryptographic nonce for this request (eliminates unsafe-inline)
+    const nonce = crypto.randomBytes(16).toString('base64');
+    (res as any).__cspNonce = nonce;
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'no-referrer');
-    // CSP: unsafe-inline required for single-file SPA on localhost; connect-src locked to self only
-    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; form-action 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'");
+    res.setHeader('Content-Security-Policy',
+      `default-src 'self'; script-src 'self' 'nonce-${nonce}'; style-src 'self' 'nonce-${nonce}'; img-src 'self' data:; connect-src 'self'; form-action 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'`);
     res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
     res.setHeader('X-DNS-Prefetch-Control', 'off');
     res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
@@ -157,8 +161,33 @@ export function createDashboardServer(config: Config): express.Express {
     next();
   });
 
-  // Serve static frontend files
-  app.use(express.static(path.join(__dirname, '..', '..', 'src', 'dashboard', 'public')));
+  // Serve static frontend files — index.html served dynamically to inject CSP nonce
+  const publicDir = path.join(__dirname, '..', '..', 'src', 'dashboard', 'public');
+  const indexHtmlPath = path.join(publicDir, 'index.html');
+  let indexHtmlTemplate = '';
+  try { indexHtmlTemplate = fs.readFileSync(indexHtmlPath, 'utf-8'); } catch { /* loaded on first request */ }
+
+  // Serve index.html with nonce injection (SPA catch-all)
+  function serveIndex(req: express.Request, res: express.Response, next: express.NextFunction) {
+    if (req.path.startsWith('/api/')) return next();
+    // Only serve index.html for HTML requests (not .js, .css, etc.)
+    if (req.path !== '/' && path.extname(req.path)) return next();
+    if (!indexHtmlTemplate) {
+      try { indexHtmlTemplate = fs.readFileSync(indexHtmlPath, 'utf-8'); } catch { return next(); }
+    }
+    const nonce = (res as any).__cspNonce || '';
+    // Inject nonce into <style> and <script> tags
+    const html = indexHtmlTemplate
+      .replace('<style>', `<style nonce="${nonce}">`)
+      .replace('<script>', `<script nonce="${nonce}">`);
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  }
+  app.get('/', serveIndex);
+  // Static assets (if any future CSS/JS files are split out)
+  app.use(express.static(publicDir, { index: false }));
+  // SPA fallback — serve index.html for any non-API non-file path
+  app.use(serveIndex);
 
   // ── API Routes ──
 

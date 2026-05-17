@@ -1,8 +1,35 @@
-# PR Comment Bot — Design Document
+# PR Comment Bot
+
+> **Status: ✅ IMPLEMENTED** — Core comment generator, GitHub adapter, API endpoint, and CLI command are all live.
 
 ## What It Does
 
 Automatically posts a summary comment on Pull Requests showing what AI agents did during development of that PR. Gives reviewers instant visibility into AI-generated code without reading logs.
+
+## Quick Start
+
+```bash
+# Set your GitHub token
+export AL_TRACKER_PR_TOKEN=ghp_your_token_here
+
+# Post a comment on PR #42
+al-tracker pr-comment --repo owner/repo --pr 42 --branch feature/foo
+
+# Or via API
+curl -X POST http://127.0.0.1:3847/api/pr-comment \
+  -H 'Content-Type: application/json' \
+  -d '{"repo":"owner/repo","prNumber":42,"branch":"feature/foo"}'
+```
+
+## Implementation
+
+| Component | File | Status |
+|-----------|------|--------|
+| Core comment generator | `src/pr-bot/index.ts` | ✅ |
+| GitHub adapter | `src/pr-bot/github.ts` | ✅ |
+| API endpoint | `POST /api/pr-comment` | ✅ |
+| CLI command | `al-tracker pr-comment` | ✅ |
+| GitLab/Bitbucket adapters | — | Planned |
 
 ---
 

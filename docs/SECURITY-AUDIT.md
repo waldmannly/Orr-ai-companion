@@ -544,3 +544,50 @@ All of these work today on localhost.
 - `src/config/index.ts` — Teams webhook added to `mergeConfig` notifications
 - `src/commands/index.ts` — `original_command` length cap at 10,000 chars
 - `tests/unit-test.mjs` — 4 new security tests (838 total): cross-join blocking, regex injection safety, command truncation, teams merge config
+
+---
+
+## Sixth Security Audit — Round 6
+
+**Date:** May 17, 2026  
+**Scope:** Enterprise-grade deep audit — OWASP Top 10, Microsoft SDL checklist  
+**Status:** All findings fixed and tested (838 unit tests passing)
+
+### Critical Fixes
+
+| # | Severity | Finding | Fix |
+|---|----------|---------|-----|
+| 1 | CRITICAL | SQL injection via LIKE escape bypass — `searchPrompts()` and `getEventsFiltered()` didn't escape backslashes before `%` and `_`, allowing `\%` to bypass filtering | Escape `\` first, then LIKE wildcards; added `ESCAPE '\'` clause |
+| 2 | CRITICAL | Path traversal in `resolveMemoryPath()` — used fragile `includes('..')` check, vulnerable to double-encoding, Unicode, and backslash tricks | Rewrote with `path.resolve()` + `startsWith(base + path.sep)` containment; blocks null bytes and control chars |
+| 3 | CRITICAL | Command injection via `cmd /c start` — Windows fallback for file open used shell command interpreter | Replaced with `explorer.exe` (no shell interpretation) |
+| 4 | CRITICAL | Search injection in `getEventsFiltered()` — search param passed directly to LIKE without escaping | Added proper LIKE escape with `ESCAPE '\'` clause |
+
+### High Severity Fixes
+
+| # | Severity | Finding | Fix |
+|---|----------|---------|-----|
+| 5 | HIGH | CSP allowed `unsafe-inline` for scripts and styles | Implemented per-request cryptographic nonces via `crypto.randomBytes(16)`; HTML served dynamically with nonce injection |
+| 6 | HIGH | Missing security headers | Added `X-DNS-Prefetch-Control: off`, `X-Permitted-Cross-Domain-Policies: none`, CORS locked to `127.0.0.1:3847`, `x-powered-by` disabled |
+| 7 | HIGH | Timing attack on team auth — dummy `SELECT 1` was not constant-time | Rewrote to iterate ALL active users with `crypto.timingSafeEqual`; no early exit |
+| 8 | HIGH | Unvalidated numeric input on `/api/costs/estimate` | Clamped tokens to `[0, 100_000_000]` with `Number.isFinite()` check |
+| 9 | HIGH | Event filter limit/offset accepted raw `Number()` (Infinity, NaN) | Replaced with `clampInt()` and bounded offset to `[0, 1_000_000]` |
+| 10 | HIGH | Branch and task_group names unbounded | Branch: 255 chars + safe git ref regex; task_group: 255 char limit |
+
+### Medium Severity Fixes
+
+| # | Severity | Finding | Fix |
+|---|----------|---------|-----|
+| 11 | MEDIUM | ReDoS in URL extraction regex — unbounded `[^\s'")\]}>]+` | Bounded to `{1,2048}` max match length |
+| 12 | MEDIUM | Prototype pollution — `sanitizeKeys()` only sanitized top level | Made recursive for nested objects |
+| 13 | MEDIUM | Shared rules accepted arbitrary regex patterns | Added 500 char limit + syntax validation on creation |
+| 14 | MEDIUM | `hydrateEvent()` blindly spread JSON.parse'd `file_paths` | Added `Array.isArray` + `typeof === 'string'` filter |
+| 15 | MEDIUM | Info disclosure — error responses included `virtual_path` | Removed internal paths from error JSON |
+
+### Files Modified
+
+- `src/dashboard/server.ts` — CSP nonce generation + injection; security headers; input validation (cost, branch, task_group, filter params); urlencoded body parser; `x-powered-by` disabled
+- `src/storage/db.ts` — LIKE escape with `ESCAPE '\'` in `getEventsFiltered()`; `hydrateEvent()` type validation
+- `src/prompts/index.ts` — `searchPrompts()` backslash-first LIKE escape; `file_paths` string validation
+- `src/team/index.ts` — `crypto.timingSafeEqual` full-iteration auth; regex validation on shared rules
+- `src/config/index.ts` — Recursive `sanitizeKeys()`
+- `src/guardrails/index.ts` — Bounded URL regex `{1,2048}`

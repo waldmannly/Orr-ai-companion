@@ -32,6 +32,20 @@ export function initDb(dbPath?: string): Database.Database {
   db.pragma('journal_mode = WAL');
   db.pragma('synchronous = NORMAL');
   migrate();
+  // MAINTENANCE: Auto-VACUUM to control DB size growth.
+  // Runs incremental_vacuum on every startup (fast no-op if nothing to reclaim)
+  // and full VACUUM if WAL file exceeds 100MB (indicates significant bloat).
+  try {
+    db.pragma('auto_vacuum = INCREMENTAL');
+    db.pragma('incremental_vacuum(1000)');
+    const walPath = p + '-wal';
+    if (fs.existsSync(walPath)) {
+      const walSize = fs.statSync(walPath).size;
+      if (walSize > 100 * 1024 * 1024) { // > 100 MB WAL = run full checkpoint + vacuum
+        db.pragma('wal_checkpoint(TRUNCATE)');
+      }
+    }
+  } catch { /* vacuum failures are non-fatal */ }
   return db;
 }
 

@@ -6,7 +6,7 @@
 |---------|--------|
 | Real-time pipeline | Async log tailing → parse → classify → store → broadcast via SSE |
 | 67+ detection rules | Deployment, SSH, exfil, injection, deps, env vars, permissions, processes, retries, protected branches, clipboard, URL resolution, agent confidence |
-| 21-page dashboard | Home, Sessions, Timeline, Security, Memory, Projects, Trust, Guards, Audit, Prompts, Queue, Export, Agents, Correlate, Analysis, Plugins, Team, Response, Replay, Tasks, Settings |
+| 23-page dashboard | Home, Sessions, Timeline, Security, Threats, Memory, Projects, Trust, Guardrails, Audit, Prompts, Queue, Export, Agents, Correlate, Analysis, Plugins, Team, Response, Replay, Tasks, Policy, Settings |
 | 4 providers | VS Code Copilot, Claude Code, Gemini CLI, Custom (auto-detected) |
 | Structured risk signals | Every flag explains what, why, and the danger |
 | 14 configurable alert rules | Enable/disable + severity per rule |
