@@ -23,15 +23,15 @@
 | **SECURITY-AUDIT.md** | 4 rounds documented | ✅ Actually 6 rounds completed (rounds 5-6 not yet added to doc) |
 | **DATA-ANALYSIS.md** | Alert tuning recommendations | ✅ All 4 priority-1 fixes applied (SSH dedup, deploy regex, memory_ops default off, .env.example exclusion) |
 
-### ⚠️ Doc Staleness Issues
+### ✅ Doc Staleness Issues — All Resolved
 
-| Issue | Where | Fix |
-|-------|-------|-----|
-| ROADMAP says "21-page dashboard" | docs/ROADMAP.md line 6 | Update to 23 |
-| SECURITY-AUDIT.md only covers rounds 1-4 | docs/SECURITY-AUDIT.md | Add rounds 5-6 summaries |
-| PR-COMMENT-BOT.md says "awaiting implementation" | docs/PR-COMMENT-BOT.md | Update — it's built |
-| README version still 1.0.0 | package.json | Consider 0.1.0-alpha for honest versioning |
-| design.txt still in root | Root directory | Move to docs/ or remove — it's the original planning doc |
+| Issue | Where | Status |
+|-------|-------|--------|
+| ROADMAP says "21-page dashboard" | docs/ROADMAP.md | ✅ Updated to 23 |
+| SECURITY-AUDIT.md only covers rounds 1-4 | docs/SECURITY-AUDIT.md | ✅ Rounds 5-6 appended |
+| PR-COMMENT-BOT.md says "awaiting implementation" | docs/PR-COMMENT-BOT.md | ✅ Marked as implemented |
+| README version still 1.0.0 | package.json | ✅ Set to 0.1.0-alpha |
+| design.txt + planning docs in root | Root directory | ✅ Moved to docs/planning/ |
 
 ---
 
@@ -121,7 +121,6 @@ All 23 views have real state management, API fetch calls, and interactive compon
 
 ### Remaining Security Notes (Low Risk)
 
-- `unsafe-inline` in script-src CSP — required for single-file SPA on localhost (no build step to inject nonces)
 - Localhost-only binding (127.0.0.1) — not exposed to network by default
 - No HTTPS/HSTS — runs on HTTP locally; add reverse proxy docs for production exposure
 
@@ -146,8 +145,8 @@ All 23 views have real state management, API fetch calls, and interactive compon
 
 | Issue | Severity | Notes |
 |-------|----------|-------|
-| DB size (1.2 GB for 47K events) | Medium | WAL/journal bloat; `al-tracker compact` (VACUUM) exists but not auto-scheduled |
-| No auto-VACUUM | Low | Could add periodic VACUUM on startup or after retention cleanup |
+| DB size (1.2 GB for 47K events) | Medium | WAL/journal bloat; `al-tracker compact` (VACUUM) exists |
+| ~~No auto-VACUUM~~ | ~~Low~~ | ✅ Fixed — incremental auto-VACUUM runs on startup; WAL checkpoint if >100MB |
 | Large single-file SPA (~5K lines HTML) | Low | Works fine; could split if it grows further |
 
 ---
@@ -156,21 +155,21 @@ All 23 views have real state management, API fetch calls, and interactive compon
 
 ### Must-Do (Blocking)
 
-| # | Task | Effort | Why |
-|---|------|--------|-----|
-| 1 | **Update stale docs** — ROADMAP (21→23 pages), PR-COMMENT-BOT (mark as built), SECURITY-AUDIT (add rounds 5-6) | 30 min | Users will read these; wrong info erodes trust |
-| 2 | **Version to 0.1.0-alpha** in package.json | 1 min | Honest versioning; 1.0.0 implies stable release |
-| 3 | **README install verification** — clone on a clean machine, `npm install && npm run build && npm start` | 15 min | Must work first try for new users |
-| 4 | **First-run experience** — verify zero-config startup actually discovers sessions and shows events | 15 min | The "does it just work?" test |
+| # | Task | Status |
+|---|------|--------|
+| 1 | **Update stale docs** — ROADMAP, PR-COMMENT-BOT, SECURITY-AUDIT | ✅ Done |
+| 2 | **Version to 0.1.0-alpha** in package.json | ✅ Done |
+| 3 | **README install verification** — clone on a clean machine, `npm install && npm run build && npm start` | ⬜ Manual test |
+| 4 | **First-run experience** — verify zero-config startup actually discovers sessions and shows events | ⬜ Manual test |
 
 ### Should-Do (High Value, Low Effort)
 
-| # | Task | Effort | Why |
-|---|------|--------|-----|
-| 5 | **Auto-VACUUM on startup** — run VACUUM if DB > threshold or on first start of day | 15 min | Prevents 1.2 GB → multi-GB growth over months |
-| 6 | **SECURITY-AUDIT.md round 5-6 update** — add the last 2 rounds of findings | 20 min | Complete audit trail for enterprise reviewers |
-| 7 | **Move design.txt + planning docs** — `01-*.md`, `02-*.md`, `03-*.md` into `docs/planning/` | 5 min | Clean root directory for new users |
-| 8 | **Smoke test script** — simple `npm test` that doesn't require a running server | 10 min | `npm test` currently runs ui-test.mjs which fails without server |
+| # | Task | Status |
+|---|------|--------|
+| 5 | **Auto-VACUUM on startup** | ✅ Done — incremental vacuum + WAL checkpoint |
+| 6 | **SECURITY-AUDIT.md round 5-6 update** | ✅ Done |
+| 7 | **Move design.txt + planning docs** to `docs/planning/` | ✅ Done |
+| 8 | **Smoke test script** — `npm test` runs unit tests without server | ✅ Done |
 
 ### Nice-to-Have (Post-Alpha)
 
