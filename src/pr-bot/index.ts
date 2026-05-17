@@ -94,10 +94,13 @@ export function collectPRData(req: PRCommentRequest, config: Config): PRCommentD
   const sessionIds = sessions.map(s => s.id);
   const placeholders = sessionIds.map(() => '?').join(',');
 
-  // 4. Aggregate event stats from the sessions themselves (already tallied)
-  const totalEvents = sessions.reduce((a, s) => a + s.total_events, 0);
-  const dangerCount = sessions.reduce((a, s) => a + s.danger_count, 0);
-  const warnCount = sessions.reduce((a, s) => a + s.warn_count, 0);
+  // 4. Aggregate event stats from the sessions themselves (already tallied) — single pass
+  let totalEvents = 0, dangerCount = 0, warnCount = 0;
+  for (const s of sessions) {
+    totalEvents += s.total_events;
+    dangerCount += s.danger_count;
+    warnCount += s.warn_count;
+  }
 
   // 5. Count critical events from the events table
   const criticalCount = (db.prepare(
@@ -114,12 +117,11 @@ export function collectPRData(req: PRCommentRequest, config: Config): PRCommentD
     `SELECT COUNT(*) as c FROM events WHERE session_id IN (${placeholders}) AND event_type = 'terminal_command'`
   ).get(...sessionIds) as { c: number }).c;
 
-  // 8. Get alerts for these sessions, filtered by minSeverity
-  let alerts: Alert[] = [];
-  for (const sid of sessionIds) {
-    const sessionAlerts = getAlerts(1000, undefined, sid);
-    alerts.push(...sessionAlerts);
-  }
+  // 8. Get alerts for these sessions — single batch query instead of N queries
+  const alertPlaceholders = sessionIds.map(() => '?').join(',');
+  let alerts: Alert[] = (db.prepare(
+    `SELECT * FROM alerts WHERE session_id IN (${alertPlaceholders}) ORDER BY timestamp DESC LIMIT 1000`
+  ).all(...sessionIds) as Array<Record<string, unknown>>).map(r => ({ ...r, acknowledged: !!(r.acknowledged) } as unknown as Alert));
   alerts = alerts.filter(a => severityAtLeast(a.severity, prBot.minSeverity as RiskLevel));
   // Deduplicate alerts — same type+message within the same session is redundant for a PR summary
   const seen = new Set<string>();

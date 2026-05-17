@@ -3,6 +3,45 @@ import { Config } from '../config';
 import { minimatch } from 'minimatch';
 import { checkSupplyChain } from './typosquat';
 
+// ── Hoisted pattern arrays (allocated once at module load) ──
+
+const DEPLOY_PATTERNS: ReadonlyArray<{ pattern: RegExp; reason: string; danger: string }> = [
+  { pattern: /\bdeploy\b.*(prod|production|live|release)/i, reason: 'Command appears to deploy to production', danger: 'Production deployments can push untested code to live users — outages, data corruption, or security holes' },
+  { pattern: /\b(npm|docker|nuget|cargo|gem|pip)\s+publish\b/i, reason: 'Package publish command detected', danger: 'Published packages are public and may be immutable — malicious code reaches all downstream consumers' },
+  { pattern: /\b(kubectl|helm)\s+(apply|install|upgrade|rollout)/i, reason: 'Kubernetes deployment command detected', danger: 'Cluster changes affect running services — bad configs can cause cascading failures across infrastructure' },
+  { pattern: /\b(docker\s+push|docker\s+compose\s+up.*--detach)/i, reason: 'Docker image push or production container start', danger: 'Pushing images or starting detached containers deploys code that may run unsupervised' },
+  { pattern: /\b(terraform\s+apply|pulumi\s+up|cdk\s+deploy|sam\s+deploy|serverless\s+deploy)/i, reason: 'Infrastructure-as-code deployment detected', danger: 'IaC deployments modify cloud infrastructure — can create resources, change permissions, or destroy services' },
+  { pattern: /\bgit\s+push\b.*\b(main|master|release|production)\b/i, reason: 'Push to protected branch (main/master/release)', danger: 'Pushing directly to protected branches may trigger CI/CD deployment pipelines automatically' },
+  { pattern: /\b(aws\s+(s3\s+sync|s3\s+cp|lambda\s+update|ecs\s+update-service))/i, reason: 'AWS service deployment or update detected', danger: 'Directly modifying AWS resources can affect running production services and stored data' },
+  { pattern: /\b(gcloud\s+(app\s+deploy|run\s+deploy|functions\s+deploy))/i, reason: 'Google Cloud deployment detected', danger: 'GCP deployments push code to cloud services — can break live systems or incur costs' },
+  { pattern: /\b(az\s+(webapp\s+deploy|functionapp\s+deploy|aks\s+))/i, reason: 'Azure deployment detected', danger: 'Azure deployments modify live cloud services and infrastructure' },
+  { pattern: /\b(fly\s+deploy|vercel\s+(--prod|deploy)|netlify\s+deploy\s+--prod|railway\s+up|heroku\s+.*push)/i, reason: 'Platform deployment (Fly/Vercel/Netlify/Railway/Heroku)', danger: 'Deploys code to a live hosting platform where it becomes immediately accessible to users' },
+];
+
+const SSH_PATTERNS: ReadonlyArray<{ pattern: RegExp; reason: string; danger: string }> = [
+  { pattern: /\bssh\s+/i, reason: 'SSH connection to a remote server', danger: 'SSH grants shell access to remote machines — commands run there are outside your local monitoring' },
+  { pattern: /\bscp\s+/i, reason: 'SCP file transfer to/from a remote server', danger: 'Files being copied to/from remote machines could leak source code, secrets, or inject malicious files' },
+  { pattern: /\brsync\s+.*:/i, reason: 'Rsync to a remote destination', danger: 'Rsync can transfer large amounts of data to remote servers — potential data exfiltration channel' },
+  { pattern: /\bsftp\s+/i, reason: 'SFTP connection for remote file transfer', danger: 'SFTP enables file upload/download to remote servers outside your local environment' },
+  { pattern: /\b(nc|ncat|netcat)\s+/i, reason: 'Netcat network connection detected', danger: 'Netcat can open arbitrary network connections — commonly used for reverse shells and data exfiltration' },
+];
+
+const EXFIL_PATTERNS: ReadonlyArray<{ pattern: RegExp; reason: string; danger: string }> = [
+  { pattern: /\bcurl\s+.*(-X\s*POST|--data|--upload-file|-F\s)/i, reason: 'curl is sending data to an external server', danger: 'Outbound data transfer could leak source code, environment variables, or credentials to an attacker' },
+  { pattern: /\bcurl\s+.*\|\s*(bash|sh|python|node)/i, reason: 'curl piped to shell execution', danger: 'Downloading and immediately executing remote code — could run anything with your full privileges' },
+  { pattern: /\bwget\s+.*-O\s*-\s*\|\s*(bash|sh)/i, reason: 'wget piped to shell execution', danger: 'Downloading and executing arbitrary code from the internet without inspection' },
+  { pattern: /\b(base64|xxd)\s+.*\|\s*(curl|wget|nc)/i, reason: 'Encoding data before sending it externally', danger: 'Base64 encoding before network transfer is a common exfiltration technique to bypass detection' },
+  { pattern: /\b(tar|zip)\s+.*\|\s*(curl|nc|ssh)/i, reason: 'Archiving files and piping to network tool', danger: 'Compressing and streaming data out — efficient bulk exfiltration of source code or secrets' },
+];
+
+const DOWNLOAD_PATTERNS: ReadonlyArray<{ pattern: RegExp; reason: string; danger: string }> = [
+  { pattern: /\b(curl|wget|Invoke-WebRequest|iwr)\s+.*(\.sh|\.bash|\.ps1|\.bat|\.cmd|\.exe|\.msi|\.dmg|\.AppImage)\b/i, reason: 'Downloading an executable or script from the internet', danger: 'Downloaded scripts/binaries could contain malware, backdoors, or ransomware that runs with your user privileges' },
+  { pattern: /\b(pip|pip3)\s+install\s+.*--index-url\s/i, reason: 'pip install from a non-default package index', danger: 'Custom package indexes can serve typosquatted or malicious packages that steal credentials' },
+  { pattern: /\bnpm\s+install\s+.*--registry\s/i, reason: 'npm install from a non-default registry', danger: 'Custom registries can serve malicious package versions — supply chain attack vector' },
+  { pattern: /\b(curl|wget)\s+.*\braw\.githubusercontent\.com\b/i, reason: 'Downloading raw file from GitHub', danger: 'GitHub raw content is not vetted — could download malicious scripts or overwrite local files' },
+  { pattern: /\b(curl|wget)\s+.*\b(pastebin|hastebin|ghostbin|rentry|transfer\.sh|0x0\.st)\b/i, reason: 'Downloading from a paste/file-sharing service', danger: 'Paste services are anonymous and ephemeral — commonly used to stage payloads for attacks' },
+];
+
 export interface RiskSignal {
   rule: string;         // short identifier (e.g. 'force_push', 'sensitive_file')
   level: RiskLevel;     // what this signal contributes
@@ -80,19 +119,7 @@ export function classifyRiskWithReasons(event: TrackerEvent, config: Config): Ri
   // ── Deployment detection ──
   if (event.command) {
     const cmd = event.command;
-    const deployPatterns: Array<{ pattern: RegExp; reason: string; danger: string }> = [
-      { pattern: /\bdeploy\b.*(prod|production|live|release)/i, reason: 'Command appears to deploy to production', danger: 'Production deployments can push untested code to live users — outages, data corruption, or security holes' },
-      { pattern: /\b(npm|docker|nuget|cargo|gem|pip)\s+publish\b/i, reason: 'Package publish command detected', danger: 'Published packages are public and may be immutable — malicious code reaches all downstream consumers' },
-      { pattern: /\b(kubectl|helm)\s+(apply|install|upgrade|rollout)/i, reason: 'Kubernetes deployment command detected', danger: 'Cluster changes affect running services — bad configs can cause cascading failures across infrastructure' },
-      { pattern: /\b(docker\s+push|docker\s+compose\s+up.*--detach)/i, reason: 'Docker image push or production container start', danger: 'Pushing images or starting detached containers deploys code that may run unsupervised' },
-      { pattern: /\b(terraform\s+apply|pulumi\s+up|cdk\s+deploy|sam\s+deploy|serverless\s+deploy)/i, reason: 'Infrastructure-as-code deployment detected', danger: 'IaC deployments modify cloud infrastructure — can create resources, change permissions, or destroy services' },
-      { pattern: /\bgit\s+push\b.*\b(main|master|release|production)\b/i, reason: 'Push to protected branch (main/master/release)', danger: 'Pushing directly to protected branches may trigger CI/CD deployment pipelines automatically' },
-      { pattern: /\b(aws\s+(s3\s+sync|s3\s+cp|lambda\s+update|ecs\s+update-service))/i, reason: 'AWS service deployment or update detected', danger: 'Directly modifying AWS resources can affect running production services and stored data' },
-      { pattern: /\b(gcloud\s+(app\s+deploy|run\s+deploy|functions\s+deploy))/i, reason: 'Google Cloud deployment detected', danger: 'GCP deployments push code to cloud services — can break live systems or incur costs' },
-      { pattern: /\b(az\s+(webapp\s+deploy|functionapp\s+deploy|aks\s+))/i, reason: 'Azure deployment detected', danger: 'Azure deployments modify live cloud services and infrastructure' },
-      { pattern: /\b(fly\s+deploy|vercel\s+(--prod|deploy)|netlify\s+deploy\s+--prod|railway\s+up|heroku\s+.*push)/i, reason: 'Platform deployment (Fly/Vercel/Netlify/Railway/Heroku)', danger: 'Deploys code to a live hosting platform where it becomes immediately accessible to users' },
-    ];
-    for (const dp of deployPatterns) {
+    for (const dp of DEPLOY_PATTERNS) {
       if (dp.pattern.test(cmd)) {
         signals.push({ rule: 'deployment', level: 'danger', reason: dp.reason, danger: dp.danger });
         break;
@@ -100,14 +127,7 @@ export function classifyRiskWithReasons(event: TrackerEvent, config: Config): Ri
     }
 
     // ── SSH / Remote access detection ──
-    const sshPatterns: Array<{ pattern: RegExp; reason: string; danger: string }> = [
-      { pattern: /\bssh\s+/i, reason: 'SSH connection to a remote server', danger: 'SSH grants shell access to remote machines — commands run there are outside your local monitoring' },
-      { pattern: /\bscp\s+/i, reason: 'SCP file transfer to/from a remote server', danger: 'Files being copied to/from remote machines could leak source code, secrets, or inject malicious files' },
-      { pattern: /\brsync\s+.*:/i, reason: 'Rsync to a remote destination', danger: 'Rsync can transfer large amounts of data to remote servers — potential data exfiltration channel' },
-      { pattern: /\bsftp\s+/i, reason: 'SFTP connection for remote file transfer', danger: 'SFTP enables file upload/download to remote servers outside your local environment' },
-      { pattern: /\b(nc|ncat|netcat)\s+/i, reason: 'Netcat network connection detected', danger: 'Netcat can open arbitrary network connections — commonly used for reverse shells and data exfiltration' },
-    ];
-    for (const sp of sshPatterns) {
+    for (const sp of SSH_PATTERNS) {
       if (sp.pattern.test(cmd)) {
         signals.push({ rule: 'ssh_remote', level: 'danger', reason: sp.reason, danger: sp.danger });
         break;
@@ -115,14 +135,7 @@ export function classifyRiskWithReasons(event: TrackerEvent, config: Config): Ri
     }
 
     // ── Data exfiltration detection ──
-    const exfilPatterns: Array<{ pattern: RegExp; reason: string; danger: string }> = [
-      { pattern: /\bcurl\s+.*(-X\s*POST|--data|--upload-file|-F\s)/i, reason: 'curl is sending data to an external server', danger: 'Outbound data transfer could leak source code, environment variables, or credentials to an attacker' },
-      { pattern: /\bcurl\s+.*\|\s*(bash|sh|python|node)/i, reason: 'curl piped to shell execution', danger: 'Downloading and immediately executing remote code — could run anything with your full privileges' },
-      { pattern: /\bwget\s+.*-O\s*-\s*\|\s*(bash|sh)/i, reason: 'wget piped to shell execution', danger: 'Downloading and executing arbitrary code from the internet without inspection' },
-      { pattern: /\b(base64|xxd)\s+.*\|\s*(curl|wget|nc)/i, reason: 'Encoding data before sending it externally', danger: 'Base64 encoding before network transfer is a common exfiltration technique to bypass detection' },
-      { pattern: /\b(tar|zip)\s+.*\|\s*(curl|nc|ssh)/i, reason: 'Archiving files and piping to network tool', danger: 'Compressing and streaming data out — efficient bulk exfiltration of source code or secrets' },
-    ];
-    for (const ep of exfilPatterns) {
+    for (const ep of EXFIL_PATTERNS) {
       if (ep.pattern.test(cmd)) {
         signals.push({ rule: 'data_exfiltration', level: 'danger', reason: ep.reason, danger: ep.danger });
         break;
@@ -130,14 +143,7 @@ export function classifyRiskWithReasons(event: TrackerEvent, config: Config): Ri
     }
 
     // ── Suspicious downloads ──
-    const downloadPatterns: Array<{ pattern: RegExp; reason: string; danger: string }> = [
-      { pattern: /\b(curl|wget|Invoke-WebRequest|iwr)\s+.*(\.sh|\.bash|\.ps1|\.bat|\.cmd|\.exe|\.msi|\.dmg|\.AppImage)\b/i, reason: 'Downloading an executable or script from the internet', danger: 'Downloaded scripts/binaries could contain malware, backdoors, or ransomware that runs with your user privileges' },
-      { pattern: /\b(pip|pip3)\s+install\s+.*--index-url\s/i, reason: 'pip install from a non-default package index', danger: 'Custom package indexes can serve typosquatted or malicious packages that steal credentials' },
-      { pattern: /\bnpm\s+install\s+.*--registry\s/i, reason: 'npm install from a non-default registry', danger: 'Custom registries can serve malicious package versions — supply chain attack vector' },
-      { pattern: /\b(curl|wget)\s+.*\braw\.githubusercontent\.com\b/i, reason: 'Downloading raw file from GitHub', danger: 'GitHub raw content is not vetted — could download malicious scripts or overwrite local files' },
-      { pattern: /\b(curl|wget)\s+.*\b(pastebin|hastebin|ghostbin|rentry|transfer\.sh|0x0\.st)\b/i, reason: 'Downloading from a paste/file-sharing service', danger: 'Paste services are anonymous and ephemeral — commonly used to stage payloads for attacks' },
-    ];
-    for (const dlp of downloadPatterns) {
+    for (const dlp of DOWNLOAD_PATTERNS) {
       if (dlp.pattern.test(cmd)) {
         signals.push({ rule: 'suspicious_download', level: 'warn', reason: dlp.reason, danger: dlp.danger });
         break;
@@ -152,8 +158,9 @@ export function classifyRiskWithReasons(event: TrackerEvent, config: Config): Ri
 
   // Check dangerous commands
   if (event.command) {
+    const cmdLower = event.command.toLowerCase();
     for (const pattern of config.dangerousCommands) {
-      if (event.command.toLowerCase().includes(pattern.toLowerCase())) {
+      if (cmdLower.includes(pattern.toLowerCase())) {
         const dangerMap: Record<string, string> = {
           'rm -rf': 'Recursive force-delete can wipe entire directory trees instantly without confirmation',
           'git push --force': 'Overwrites remote branch history, potentially destroying other developers\' work',

@@ -18,7 +18,7 @@
  *   SSE 'command-released' fires with original or modified command
  */
 
-import { getDb } from '../storage/db';
+import { getDb, getDbGeneration } from '../storage/db';
 import type { RiskLevel } from '../parser/event-types';
 
 // ── Types ──
@@ -91,12 +91,18 @@ export function migrateCommandQueue(): void {
 
 // ── Core Operations ──
 
-const insertStmt = () => getDb().prepare(`
+let _insertStmt: ReturnType<ReturnType<typeof getDb>['prepare']> | null = null;
+let _insertStmtGen = -1;
+const insertStmt = () => {
+  const gen = getDbGeneration();
+  if (gen !== _insertStmtGen) { _insertStmt = null; _insertStmtGen = gen; }
+  return (_insertStmt ??= getDb().prepare(`
   INSERT INTO command_queue
     (session_id, event_id, provider, project_name, action_type, original_command,
      rule, severity, message, status, blocked_at)
   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'blocked', ?)
-`);
+`));
+};
 
 /**
  * Queue a blocked command. Returns the new queue entry ID.

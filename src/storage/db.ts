@@ -1,9 +1,22 @@
 import Database from 'better-sqlite3';
+import type { Statement } from 'better-sqlite3';
 import * as path from 'path';
 import * as fs from 'fs';
 import { TrackerEvent, SessionInfo, Alert, MemoryOperation, RiskLevel } from '../parser/event-types';
 
 let db: Database.Database;
+
+// ── Cached prepared statements (cleared on re-init) ──
+let dbGeneration = 0;
+const stmtCache = new Map<string, Statement>();
+function stmt(key: string, sql: string): Statement {
+  let s = stmtCache.get(key);
+  if (!s) { s = db.prepare(sql); stmtCache.set(key, s); }
+  return s;
+}
+
+/** Generation counter — incremented on each initDb(). External caches can track this to invalidate. */
+export function getDbGeneration(): number { return dbGeneration; }
 
 export function getDb(): Database.Database {
   if (!db) throw new Error('Database not initialized. Call initDb() first.');
@@ -13,6 +26,8 @@ export function getDb(): Database.Database {
 export function initDb(dbPath?: string): Database.Database {
   const p = dbPath || path.join(process.cwd(), 'data', 'tracker.db');
   fs.mkdirSync(path.dirname(p), { recursive: true, mode: 0o700 });
+  stmtCache.clear();
+  dbGeneration++;
   db = new Database(p);
   db.pragma('journal_mode = WAL');
   db.pragma('synchronous = NORMAL');
@@ -442,17 +457,17 @@ export function vacuumDb(): { before: number; after: number } {
 export function enforceRetention(maxAgeDays: number) {
   if (maxAgeDays <= 0) return;
   const cutoff = new Date(Date.now() - maxAgeDays * 86400000).toISOString();
-  db.prepare('DELETE FROM events WHERE timestamp < ?').run(cutoff);
-  db.prepare('DELETE FROM alerts WHERE timestamp < ?').run(cutoff);
-  db.prepare('DELETE FROM memory_operations WHERE timestamp < ?').run(cutoff);
+  stmt('retainEvents', 'DELETE FROM events WHERE timestamp < ?').run(cutoff);
+  stmt('retainAlerts', 'DELETE FROM alerts WHERE timestamp < ?').run(cutoff);
+  stmt('retainMemory', 'DELETE FROM memory_operations WHERE timestamp < ?').run(cutoff);
   // Clean up sessions with no remaining events
-  db.prepare('DELETE FROM sessions WHERE id NOT IN (SELECT DISTINCT session_id FROM events) AND started_at < ?').run(cutoff);
+  stmt('retainSessions', 'DELETE FROM sessions WHERE id NOT IN (SELECT DISTINCT session_id FROM events) AND started_at < ?').run(cutoff);
 }
 
 // ── Session CRUD ──
 
 export function upsertSession(info: SessionInfo) {
-  const stmt = db.prepare(`
+  stmt('upsertSession', `
     INSERT INTO sessions (id, workspace, project_name, started_at, ended_at, total_events, danger_count, warn_count, source_tool)
     VALUES (@id, @workspace, @project_name, @started_at, @ended_at, @total_events, @danger_count, @warn_count, @source_tool)
     ON CONFLICT(id) DO UPDATE SET
@@ -460,35 +475,33 @@ export function upsertSession(info: SessionInfo) {
       total_events = @total_events,
       danger_count = @danger_count,
       warn_count = @warn_count
-  `);
-  stmt.run(info);
+  `).run(info);
 
   // Auto-set task_group if not set (links sessions by project+branch)
-  const session = db.prepare('SELECT task_group, git_branch FROM sessions WHERE id = ?').get(info.id) as any;
+  const session = stmt('getSessionTaskGroup', 'SELECT task_group, git_branch FROM sessions WHERE id = ?').get(info.id) as any;
   if (!session?.task_group && info.project_name) {
     const branch = session?.git_branch || 'default';
-    db.prepare('UPDATE sessions SET task_group = ? WHERE id = ? AND (task_group IS NULL OR task_group = \'\')').run(
+    stmt('setAutoTaskGroup', 'UPDATE sessions SET task_group = ? WHERE id = ? AND (task_group IS NULL OR task_group = \'\')').run(
       `${info.project_name}:${branch}`, info.id
     );
   }
 }
 
 export function getSession(id: string): SessionInfo | undefined {
-  return db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as SessionInfo | undefined;
+  return stmt('getSession', 'SELECT * FROM sessions WHERE id = ?').get(id) as SessionInfo | undefined;
 }
 
 export function getAllSessions(limit = 50): SessionInfo[] {
-  return db.prepare('SELECT * FROM sessions ORDER BY started_at DESC LIMIT ?').all(limit) as SessionInfo[];
+  return stmt('getAllSessions', 'SELECT * FROM sessions ORDER BY started_at DESC LIMIT ?').all(limit) as SessionInfo[];
 }
 
 // ── Event CRUD ──
 
 export function insertEvent(event: TrackerEvent): number {
-  const stmt = db.prepare(`
+  const result = stmt('insertEvent', `
     INSERT OR IGNORE INTO events (session_id, timestamp, agent_id, parent_agent_id, event_type, tool_name, risk_level, summary, file_paths, command, parameters, duration_ms, raw_log, source_tool, risk_signals, token_count, anomaly_score)
     VALUES (@session_id, @timestamp, @agent_id, @parent_agent_id, @event_type, @tool_name, @risk_level, @summary, @file_paths, @command, @parameters, @duration_ms, @raw_log, @source_tool, @risk_signals, @token_count, @anomaly_score)
-  `);
-  const result = stmt.run({
+  `).run({
     ...event,
     file_paths: JSON.stringify(event.file_paths),
     parameters: event.parameters ? JSON.stringify(event.parameters) : null,
@@ -511,7 +524,7 @@ export function getSessionEvents(sessionId: string, limit = 500, offset = 0, ris
 }
 
 export function getRecentEvents(limit = 50): TrackerEvent[] {
-  const rows = db.prepare('SELECT * FROM events ORDER BY timestamp DESC LIMIT ?').all(limit) as Array<Record<string, unknown>>;
+  const rows = stmt('getRecentEvents', 'SELECT * FROM events ORDER BY timestamp DESC LIMIT ?').all(limit) as Array<Record<string, unknown>>;
   return rows.map(hydrateEvent);
 }
 
@@ -527,11 +540,10 @@ function hydrateEvent(row: Record<string, unknown>): TrackerEvent {
 // ── Alert CRUD ──
 
 export function insertAlert(alert: Alert): number {
-  const stmt = db.prepare(`
+  const result = stmt('insertAlert', `
     INSERT OR IGNORE INTO alerts (event_id, session_id, timestamp, alert_type, severity, message, acknowledged)
     VALUES (@event_id, @session_id, @timestamp, @alert_type, @severity, @message, @acknowledged)
-  `);
-  const result = stmt.run({ ...alert, acknowledged: alert.acknowledged ? 1 : 0 });
+  `).run({ ...alert, acknowledged: alert.acknowledged ? 1 : 0 });
   return Number(result.lastInsertRowid);
 }
 
@@ -547,17 +559,16 @@ export function getAlerts(limit = 100, severity?: RiskLevel, sessionId?: string)
 }
 
 export function acknowledgeAlert(id: number) {
-  db.prepare('UPDATE alerts SET acknowledged = 1 WHERE id = ?').run(id);
+  stmt('ackAlert', 'UPDATE alerts SET acknowledged = 1 WHERE id = ?').run(id);
 }
 
 // ── Memory Operations ──
 
 export function insertMemoryOp(op: MemoryOperation): number {
-  const stmt = db.prepare(`
+  const result = stmt('insertMemoryOp', `
     INSERT INTO memory_operations (event_id, session_id, timestamp, operation, memory_scope, memory_path, content_summary, risk_level)
     VALUES (@event_id, @session_id, @timestamp, @operation, @memory_scope, @memory_path, @content_summary, @risk_level)
-  `);
-  const result = stmt.run(op);
+  `).run(op);
   return Number(result.lastInsertRowid);
 }
 
@@ -573,34 +584,55 @@ export function getMemoryOps(limit = 100, sessionId?: string): MemoryOperation[]
 // ── Stats / Queries ──
 
 export function getStats() {
-  const d = db;
   const today = new Date().toISOString().split('T')[0];
+  const todayStart = today + 'T00:00:00';
 
-  const totalEvents = (d.prepare(`SELECT COUNT(*) as c FROM events WHERE timestamp >= ?`).get(today + 'T00:00:00') as { c: number }).c;
-  const filesChanged = (d.prepare(`SELECT COUNT(DISTINCT e.id) as c FROM events e WHERE event_type IN ('file_write','file_create','file_delete') AND timestamp >= ?`).get(today + 'T00:00:00') as { c: number }).c;
-  const commandsRun = (d.prepare(`SELECT COUNT(*) as c FROM events WHERE event_type IN ('terminal_command','git_commit','git_push','git_reset','git_checkout','git_operation') AND timestamp >= ?`).get(today + 'T00:00:00') as { c: number }).c;
-  const alertCount = (d.prepare(`SELECT COUNT(*) as c FROM alerts WHERE timestamp >= ?`).get(today + 'T00:00:00') as { c: number }).c;
-  const unreviewedAlerts = (d.prepare(`SELECT COUNT(*) as c FROM alerts WHERE acknowledged = 0`).get() as { c: number }).c;
+  // Batch today's event stats into a single scan
+  const eventStats = stmt('statsTodayEvents', `
+    SELECT
+      COUNT(*) as totalEvents,
+      COUNT(CASE WHEN event_type IN ('file_write','file_create','file_delete') THEN 1 END) as filesChanged,
+      COUNT(CASE WHEN event_type IN ('terminal_command','git_commit','git_push','git_reset','git_checkout','git_operation') THEN 1 END) as commandsRun,
+      SUM(CASE WHEN risk_level = 'danger' THEN 1 ELSE 0 END) as dangerCount,
+      SUM(CASE WHEN risk_level = 'warn' THEN 1 ELSE 0 END) as warnCount
+    FROM events WHERE timestamp >= ?
+  `).get(todayStart) as { totalEvents: number; filesChanged: number; commandsRun: number; dangerCount: number; warnCount: number };
 
-  const riskDist = d.prepare(`
+  const alertCount = (stmt('statsTodayAlerts', 'SELECT COUNT(*) as c FROM alerts WHERE timestamp >= ?').get(todayStart) as { c: number }).c;
+  const unreviewedAlerts = (stmt('statsUnreviewed', 'SELECT COUNT(*) as c FROM alerts WHERE acknowledged = 0').get() as { c: number }).c;
+
+  const riskDist = stmt('statsRiskDist', `
     SELECT risk_level, COUNT(*) as count FROM events WHERE timestamp >= ? GROUP BY risk_level
-  `).all(today + 'T00:00:00') as Array<{ risk_level: string; count: number }>;
+  `).all(todayStart) as Array<{ risk_level: string; count: number }>;
 
-  const dangerCount = (d.prepare(`SELECT COUNT(*) as c FROM events WHERE risk_level = 'danger' AND timestamp >= ?`).get(today + 'T00:00:00') as { c: number }).c;
-  const warnCount = (d.prepare(`SELECT COUNT(*) as c FROM events WHERE risk_level = 'warn' AND timestamp >= ?`).get(today + 'T00:00:00') as { c: number }).c;
-
-  // Daily event counts for last 7 days
+  // Daily event counts for last 7 days — single GROUP BY query instead of 7 queries
+  const weekAgo = new Date();
+  weekAgo.setDate(weekAgo.getDate() - 6);
+  const weekAgoStr = weekAgo.toISOString().split('T')[0] + 'T00:00:00';
+  const dailyRows = stmt('statsDaily', `
+    SELECT substr(timestamp, 1, 10) as date, COUNT(*) as count
+    FROM events WHERE timestamp >= ?
+    GROUP BY substr(timestamp, 1, 10) ORDER BY date ASC
+  `).all(weekAgoStr) as Array<{ date: string; count: number }>;
+  const countsMap = new Map(dailyRows.map(r => [r.date, r.count]));
   const dailyCounts: Array<{ date: string; count: number }> = [];
   for (let i = 6; i >= 0; i--) {
     const d2 = new Date();
     d2.setDate(d2.getDate() - i);
     const dateStr = d2.toISOString().split('T')[0];
-    const count = (d.prepare(`SELECT COUNT(*) as c FROM events WHERE timestamp >= ? AND timestamp < ?`).get(dateStr + 'T00:00:00', dateStr + 'T23:59:59') as { c: number }).c;
-    dailyCounts.push({ date: dateStr, count });
+    dailyCounts.push({ date: dateStr, count: countsMap.get(dateStr) || 0 });
   }
 
   return {
-    today: { totalEvents, filesChanged, commandsRun, alertCount, unreviewedAlerts, dangerCount, warnCount },
+    today: {
+      totalEvents: eventStats.totalEvents,
+      filesChanged: eventStats.filesChanged,
+      commandsRun: eventStats.commandsRun,
+      alertCount,
+      unreviewedAlerts,
+      dangerCount: eventStats.dangerCount,
+      warnCount: eventStats.warnCount,
+    },
     riskDistribution: riskDist,
     dailyCounts,
   };
@@ -623,7 +655,7 @@ export function getProjectStats() {
 }
 
 export function getLiveEvents(since: string): TrackerEvent[] {
-  const rows = db.prepare('SELECT * FROM events WHERE timestamp > ? ORDER BY timestamp ASC').all(since) as Array<Record<string, unknown>>;
+  const rows = stmt('getLiveEvents', 'SELECT * FROM events WHERE timestamp > ? ORDER BY timestamp ASC').all(since) as Array<Record<string, unknown>>;
   return rows.map(hydrateEvent);
 }
 
@@ -636,7 +668,7 @@ export function getAgentStats(sessionId: string): Array<{ agent_id: string; even
 }
 
 export function getEventById(id: number): TrackerEvent | undefined {
-  const row = db.prepare('SELECT * FROM events WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+  const row = stmt('getEventById', 'SELECT * FROM events WHERE id = ?').get(id) as Record<string, unknown> | undefined;
   return row ? hydrateEvent(row) : undefined;
 }
 
@@ -668,7 +700,7 @@ export function searchEvents(query: string, limit = 100): TrackerEvent[] {
 // ── Bulk acknowledge all alerts ──
 
 export function acknowledgeAllAlerts() {
-  db.prepare('UPDATE alerts SET acknowledged = 1 WHERE acknowledged = 0').run();
+  stmt('ackAllAlerts', 'UPDATE alerts SET acknowledged = 1 WHERE acknowledged = 0').run();
 }
 
 // ── Enhanced stats with session counts + time range ──
@@ -747,24 +779,24 @@ export function getStatsForRange(startDate: string, endDate: string) {
 // ── Session ended_at update ──
 
 export function markSessionEnded(sessionId: string, endedAt: string) {
-  db.prepare('UPDATE sessions SET ended_at = ? WHERE id = ? AND ended_at IS NULL').run(endedAt, sessionId);
+  stmt('markEnded', 'UPDATE sessions SET ended_at = ? WHERE id = ? AND ended_at IS NULL').run(endedAt, sessionId);
 }
 
 // ── Session kill tracking ──
 
 export function markSessionKilled(sessionId: string, reason: string): void {
   const now = new Date().toISOString();
-  db.prepare('UPDATE sessions SET killed_at = ?, kill_reason = ?, ended_at = COALESCE(ended_at, ?) WHERE id = ?')
+  stmt('markKilled', 'UPDATE sessions SET killed_at = ?, kill_reason = ?, ended_at = COALESCE(ended_at, ?) WHERE id = ?')
     .run(now, reason, now, sessionId);
 }
 
 export function isSessionKilledInDb(sessionId: string): boolean {
-  const row = db.prepare('SELECT killed_at FROM sessions WHERE id = ?').get(sessionId) as { killed_at: string | null } | undefined;
+  const row = stmt('isKilled', 'SELECT killed_at FROM sessions WHERE id = ?').get(sessionId) as { killed_at: string | null } | undefined;
   return !!row?.killed_at;
 }
 
 export function getKilledSessions(): Array<{ id: string; project_name: string; killed_at: string; kill_reason: string }> {
-  return db.prepare('SELECT id, project_name, killed_at, kill_reason FROM sessions WHERE killed_at IS NOT NULL ORDER BY killed_at DESC')
+  return stmt('getKilled', 'SELECT id, project_name, killed_at, kill_reason FROM sessions WHERE killed_at IS NOT NULL ORDER BY killed_at DESC')
     .all() as Array<{ id: string; project_name: string; killed_at: string; kill_reason: string }>;
 }
 
@@ -772,7 +804,7 @@ export function getKilledSessions(): Array<{ id: string; project_name: string; k
 
 export function addDailyTokens(sessionId: string, tokens: number): void {
   const date = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-  db.prepare(`
+  stmt('addDailyTokens', `
     INSERT INTO daily_token_usage (date, session_id, tokens) VALUES (?, ?, ?)
     ON CONFLICT(date, session_id) DO UPDATE SET tokens = tokens + excluded.tokens
   `).run(date, sessionId, tokens);
@@ -780,7 +812,7 @@ export function addDailyTokens(sessionId: string, tokens: number): void {
 
 export function getDailyTokenTotal(): number {
   const date = new Date().toISOString().slice(0, 10);
-  const row = db.prepare('SELECT SUM(tokens) as total FROM daily_token_usage WHERE date = ?').get(date) as { total: number | null };
+  const row = stmt('getDailyTokenTotal', 'SELECT SUM(tokens) as total FROM daily_token_usage WHERE date = ?').get(date) as { total: number | null };
   return row?.total || 0;
 }
 
@@ -788,7 +820,7 @@ export function getDailyTokenTotal(): number {
 
 export function getRecentSessionAlertBurst(sessionId: string, windowMinutes: number, threshold: number): boolean {
   const since = new Date(Date.now() - windowMinutes * 60000).toISOString();
-  const count = (db.prepare(
+  const count = (stmt('alertBurst',
     `SELECT COUNT(*) as c FROM alerts WHERE session_id = ? AND timestamp >= ? AND severity IN ('warn','danger')`
   ).get(sessionId, since) as { c: number }).c;
   return count >= threshold;
@@ -797,30 +829,31 @@ export function getRecentSessionAlertBurst(sessionId: string, windowMinutes: num
 // ── Baselines ──
 
 export function upsertBaseline(projectName: string, metric: string, value: number, sampleCount: number) {
-  db.prepare(`
+  const now = new Date().toISOString();
+  stmt('upsertBaseline', `
     INSERT INTO baselines (project_name, metric, value, sample_count, updated_at)
     VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(project_name, metric) DO UPDATE SET
       value = (value * sample_count + ?) / (sample_count + 1),
       sample_count = sample_count + 1,
       updated_at = ?
-  `).run(projectName, metric, value, sampleCount, new Date().toISOString(), value, new Date().toISOString());
+  `).run(projectName, metric, value, sampleCount, now, value, now);
 }
 
 export function getBaseline(projectName: string, metric: string): { value: number; sample_count: number } | undefined {
-  return db.prepare('SELECT value, sample_count FROM baselines WHERE project_name = ? AND metric = ?')
+  return stmt('getBaseline', 'SELECT value, sample_count FROM baselines WHERE project_name = ? AND metric = ?')
     .get(projectName, metric) as { value: number; sample_count: number } | undefined;
 }
 
 export function getAllBaselines(projectName: string): Array<{ metric: string; value: number; sample_count: number }> {
-  return db.prepare('SELECT metric, value, sample_count FROM baselines WHERE project_name = ? ORDER BY metric')
+  return stmt('getAllBaselines', 'SELECT metric, value, sample_count FROM baselines WHERE project_name = ? ORDER BY metric')
     .all(projectName) as Array<{ metric: string; value: number; sample_count: number }>;
 }
 
 // ── Token tracking ──
 
 export function getSessionTokens(sessionId: string): number {
-  const row = db.prepare('SELECT COALESCE(SUM(token_count), 0) as total FROM events WHERE session_id = ? AND token_count IS NOT NULL')
+  const row = stmt('getSessionTokens', 'SELECT COALESCE(SUM(token_count), 0) as total FROM events WHERE session_id = ? AND token_count IS NOT NULL')
     .get(sessionId) as { total: number };
   return row.total;
 }
@@ -954,7 +987,7 @@ export function insertGuardrailViolation(v: {
   event_id: number | null; session_id: string; timestamp: string;
   rule: string; severity: string; message: string; blocked: boolean;
 }): void {
-  db.prepare(`
+  stmt('insertGuardrailViolation', `
     INSERT INTO guardrail_violations (event_id, session_id, timestamp, rule, severity, message, blocked)
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `).run(v.event_id, v.session_id, v.timestamp, v.rule, v.severity, v.message, v.blocked ? 1 : 0);
@@ -979,7 +1012,7 @@ export function getGuardrailViolations(sessionId?: string, limit = 100): Array<{
 // ── Branch/PR linking ──
 
 export function setSessionBranch(sessionId: string, branch: string): void {
-  db.prepare('UPDATE sessions SET git_branch = ? WHERE id = ?').run(branch, sessionId);
+  stmt('setSessionBranch', 'UPDATE sessions SET git_branch = ? WHERE id = ?').run(branch, sessionId);
 }
 
 export function getSessionsByBranch(branch: string): SessionInfo[] {
@@ -993,11 +1026,17 @@ export function getBranchSummary(branch: string): {
 } {
   const sessions = db.prepare('SELECT * FROM sessions WHERE git_branch = ?').all(branch) as SessionInfo[];
   const providers = [...new Set(sessions.map(s => s.source_tool))];
+  let totalEvents = 0, dangerCount = 0, warnCount = 0;
+  for (const s of sessions) {
+    totalEvents += s.total_events;
+    dangerCount += s.danger_count;
+    warnCount += s.warn_count;
+  }
   return {
     sessions: sessions.length,
-    totalEvents: sessions.reduce((a, s) => a + s.total_events, 0),
-    dangerCount: sessions.reduce((a, s) => a + s.danger_count, 0),
-    warnCount: sessions.reduce((a, s) => a + s.warn_count, 0),
+    totalEvents,
+    dangerCount,
+    warnCount,
     providers,
     firstSession: sessions.length > 0 ? sessions[sessions.length - 1].started_at : null,
     lastSession: sessions.length > 0 ? sessions[0].started_at : null,
@@ -1057,7 +1096,7 @@ export function getFileActivity(filePath: string, limit = 50): Array<{
 // ── Session Linking ──
 
 export function setSessionTaskGroup(sessionId: string, taskGroup: string) {
-  db.prepare('UPDATE sessions SET task_group = ? WHERE id = ?').run(taskGroup, sessionId);
+  stmt('setTaskGroup', 'UPDATE sessions SET task_group = ? WHERE id = ?').run(taskGroup, sessionId);
 }
 
 export function getLinkedSessions(taskGroup: string): SessionInfo[] {
@@ -1138,12 +1177,12 @@ export function getBranchActivitySummary(projectName: string, branch: string): {
 // ── Tailer Offset Persistence ──
 
 export function getTailerOffset(filePath: string): number {
-  const row = db.prepare('SELECT byte_offset FROM tailer_offsets WHERE file_path = ?').get(filePath) as { byte_offset: number } | undefined;
+  const row = stmt('getTailerOffset', 'SELECT byte_offset FROM tailer_offsets WHERE file_path = ?').get(filePath) as { byte_offset: number } | undefined;
   return row?.byte_offset ?? 0;
 }
 
 export function setTailerOffset(filePath: string, offset: number): void {
-  db.prepare(`
+  stmt('setTailerOffset', `
     INSERT INTO tailer_offsets (file_path, byte_offset, updated_at)
     VALUES (?, ?, ?)
     ON CONFLICT(file_path) DO UPDATE SET byte_offset = excluded.byte_offset, updated_at = excluded.updated_at

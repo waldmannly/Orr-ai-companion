@@ -7,7 +7,20 @@
  * and what instructions to feed back to restart the work.
  */
 
-import { getDb } from '../storage/db';
+import { getDb, getDbGeneration } from '../storage/db';
+import type Database from 'better-sqlite3';
+import type { Statement } from 'better-sqlite3';
+
+// ── Cached statements (auto-invalidate on db re-init) ──
+let lastGen = -1;
+const stmtCache = new Map<string, Statement>();
+function cstmt(key: string, sql: string): Statement {
+  const gen = getDbGeneration();
+  if (gen !== lastGen) { stmtCache.clear(); lastGen = gen; }
+  let s = stmtCache.get(key);
+  if (!s) { s = getDb().prepare(sql); stmtCache.set(key, s); }
+  return s;
+}
 
 // ── Types ──
 
@@ -78,8 +91,7 @@ export function migratePrompts(): void {
 
 /** Store a prompt */
 export function insertPrompt(prompt: Omit<StoredPrompt, 'id'>): number {
-  const db = getDb();
-  const result = db.prepare(`
+  const result = cstmt('insertPrompt', `
     INSERT INTO prompts (event_id, session_id, timestamp, content, provider, project_name, token_count, seq)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
@@ -92,24 +104,21 @@ export function insertPrompt(prompt: Omit<StoredPrompt, 'id'>): number {
 
 /** Get all prompts for a session, ordered by sequence */
 export function getSessionPrompts(sessionId: string): StoredPrompt[] {
-  const db = getDb();
-  return db.prepare(
+  return cstmt('getSessionPrompts',
     'SELECT * FROM prompts WHERE session_id = ? ORDER BY seq ASC'
   ).all(sessionId) as StoredPrompt[];
 }
 
 /** Get recent prompts across all sessions */
 export function getRecentPrompts(limit = 50): StoredPrompt[] {
-  const db = getDb();
-  return db.prepare(
+  return cstmt('getRecentPrompts',
     'SELECT * FROM prompts ORDER BY timestamp DESC LIMIT ?'
   ).all(limit) as StoredPrompt[];
 }
 
 /** Get prompts for a project */
 export function getProjectPrompts(projectName: string, limit = 100): StoredPrompt[] {
-  const db = getDb();
-  return db.prepare(
+  return cstmt('getProjectPrompts',
     'SELECT * FROM prompts WHERE project_name = ? ORDER BY timestamp DESC LIMIT ?'
   ).all(projectName, limit) as StoredPrompt[];
 }
@@ -125,8 +134,7 @@ export function searchPrompts(query: string, limit = 50): StoredPrompt[] {
 
 /** Get prompt count per session (for determining seq of next prompt) */
 export function getSessionPromptCount(sessionId: string): number {
-  const db = getDb();
-  const row = db.prepare('SELECT COUNT(*) as c FROM prompts WHERE session_id = ?').get(sessionId) as { c: number };
+  const row = cstmt('getPromptCount', 'SELECT COUNT(*) as c FROM prompts WHERE session_id = ?').get(sessionId) as { c: number };
   return row.c;
 }
 

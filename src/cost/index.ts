@@ -155,10 +155,21 @@ export function getCostSummary(config: Config, days = 30): CostSummary {
   const byProvider: Record<string, { tokens: number; costUSD: number; sessions: number }> = {};
   const sessionCosts: SessionCost[] = [];
 
+  // Batch token query — single query instead of N queries
+  const sessionIds = sessions.map(s => s.id);
+  const tokensBySession = new Map<string, number>();
+  if (sessionIds.length > 0) {
+    const placeholders = sessionIds.map(() => '?').join(',');
+    const tokenRows = db.prepare(
+      `SELECT session_id, COALESCE(SUM(token_count), 0) as total
+       FROM events WHERE session_id IN (${placeholders}) AND token_count IS NOT NULL
+       GROUP BY session_id`
+    ).all(...sessionIds) as Array<{ session_id: string; total: number }>;
+    for (const r of tokenRows) tokensBySession.set(r.session_id, r.total);
+  }
+
   for (const s of sessions) {
-    // Get actual token count from events (more accurate than session.token_count)
-    const tokens = (db.prepare('SELECT COALESCE(SUM(token_count), 0) as total FROM events WHERE session_id = ? AND token_count IS NOT NULL')
-      .get(s.id) as { total: number }).total || s.token_count || 0;
+    const tokens = tokensBySession.get(s.id) || s.token_count || 0;
 
     const rate = getRateForProvider(s.source_tool, config);
     const cost = (tokens / 1_000_000) * rate;

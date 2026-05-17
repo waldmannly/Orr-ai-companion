@@ -6,6 +6,65 @@ import { insertAlert } from '../storage/db';
 
 const SEVERITY_ORDER: RiskLevel[] = ['info', 'watch', 'warn', 'danger', 'critical'];
 
+// ── Hoisted pattern arrays (allocated once at module load) ──
+
+const ALERT_DEPLOY_PATTERNS: ReadonlyArray<{ pattern: RegExp; msg: string }> = [
+  { pattern: /\bdeploy\b.*(prod|production|live|release)/i, msg: 'Production deployment command' },
+  { pattern: /\b(npm|docker|nuget|cargo|gem|pip)\s+publish\b/i, msg: 'Package publish command' },
+  { pattern: /\b(kubectl|helm)\s+(apply|install|upgrade|rollout)/i, msg: 'Kubernetes cluster change' },
+  { pattern: /\b(docker\s+push|docker\s+compose\s+up.*--detach)/i, msg: 'Docker image push / production container' },
+  { pattern: /\b(terraform\s+apply|pulumi\s+up|cdk\s+deploy|sam\s+deploy|serverless\s+deploy)/i, msg: 'Infrastructure-as-code deployment' },
+  { pattern: /\bgit\s+push\b.*\b(main|master|release|production)\b/i, msg: 'Push to protected branch' },
+  { pattern: /\b(aws\s+(s3\s+sync|s3\s+cp|lambda\s+update|ecs\s+update-service))/i, msg: 'AWS service update' },
+  { pattern: /\b(gcloud\s+(app\s+deploy|run\s+deploy|functions\s+deploy))/i, msg: 'Google Cloud deployment' },
+  { pattern: /\b(az\s+(webapp\s+deploy|functionapp\s+deploy|aks\s+))/i, msg: 'Azure deployment' },
+  { pattern: /\b(fly\s+deploy|vercel\s+(--prod|deploy)|netlify\s+deploy\s+--prod|railway\s+up|heroku\s+.*push)/i, msg: 'Platform deployment' },
+];
+
+const ALERT_SSH_PATTERNS: ReadonlyArray<{ pattern: RegExp; msg: string }> = [
+  { pattern: /\bssh\s+/i, msg: 'SSH connection to remote server' },
+  { pattern: /\bscp\s+/i, msg: 'SCP file transfer' },
+  { pattern: /\brsync\s+.*:/i, msg: 'Rsync to remote host' },
+  { pattern: /\bsftp\s+/i, msg: 'SFTP file transfer' },
+  { pattern: /\b(nc|ncat|netcat)\s+/i, msg: 'Netcat network connection' },
+];
+
+const ALERT_EXFIL_PATTERNS: ReadonlyArray<{ pattern: RegExp; msg: string }> = [
+  { pattern: /\bcurl\s+.*(-X\s*POST|--data|--upload-file|-F\s)/i, msg: 'curl sending data externally' },
+  { pattern: /\bcurl\s+.*\|\s*(bash|sh|python|node)/i, msg: 'curl piped to shell — remote code execution' },
+  { pattern: /\bwget\s+.*-O\s*-\s*\|\s*(bash|sh)/i, msg: 'wget piped to shell — remote code execution' },
+  { pattern: /\b(base64|xxd)\s+.*\|\s*(curl|wget|nc)/i, msg: 'Encoded data being sent externally' },
+  { pattern: /\b(tar|zip)\s+.*\|\s*(curl|nc|ssh)/i, msg: 'Archive piped to network' },
+];
+
+const ALERT_DL_PATTERNS: ReadonlyArray<{ pattern: RegExp; msg: string }> = [
+  { pattern: /\b(curl|wget|Invoke-WebRequest|iwr)\s+.*(\.sh|\.bash|\.ps1|\.bat|\.cmd|\.exe|\.msi|\.dmg|\.AppImage)\b/i, msg: 'Downloading executable/script' },
+  { pattern: /\b(pip|pip3)\s+install\s+.*--index-url\s/i, msg: 'pip install from non-default index' },
+  { pattern: /\bnpm\s+install\s+.*--registry\s/i, msg: 'npm install from non-default registry' },
+  { pattern: /\b(curl|wget)\s+.*\b(pastebin|hastebin|ghostbin|rentry|transfer\.sh|0x0\.st)\b/i, msg: 'Download from paste/file-share service' },
+];
+
+const ALERT_CRITICAL_PATTERNS: ReadonlyArray<{ pattern: RegExp; msg: string }> = [
+  { pattern: /\bbash\s+-i\s+>&\s*\/dev\/tcp\//i, msg: 'Reverse shell via /dev/tcp' },
+  { pattern: /\b(nc|ncat|netcat)\s+.*-e\s*(\/bin\/)?(ba)?sh/i, msg: 'Netcat reverse shell' },
+  { pattern: /\bpython[23]?\s+-c\s+.*socket.*connect/i, msg: 'Python reverse shell' },
+  { pattern: /\bperl\s+-e\s+.*socket.*INET/i, msg: 'Perl reverse shell' },
+  { pattern: /\bphp\s+-r\s+.*fsockopen/i, msg: 'PHP reverse shell' },
+  { pattern: /\brm\s+.*\/tmp\/f\s*;\s*mkfifo\s/i, msg: 'Named pipe reverse shell' },
+  { pattern: /\b(xmrig|minerd|cpuminer|cgminer|bfgminer|ethminer|nbminer)\b/i, msg: 'Cryptocurrency miner detected' },
+  { pattern: /\bstratum\+tcp:\/\//i, msg: 'Mining pool connection (stratum protocol)' },
+  { pattern: /\bmimikatz\b/i, msg: 'Mimikatz credential harvester' },
+  { pattern: /\b(lazagne|credentialfileview|nirsoft)\b/i, msg: 'Known credential harvesting tool' },
+  { pattern: /\/etc\/shadow|SAM\s+SYSTEM|sekurlsa::logonpasswords/i, msg: 'Credential file exfiltration' },
+  { pattern: /\bcrontab\s+-.*\|\s*(curl|wget|bash)/i, msg: 'Cron persistence with remote payload' },
+  { pattern: /\b(systemctl|launchctl)\s+(enable|load)\s+.*\.(service|plist)\s*$/i, msg: 'Service persistence installation' },
+  { pattern: /\b(meterpreter|cobalt\s*strike|sliver|empire|covenant|havoc|brute\s*ratel)\b/i, msg: 'Known C2 framework component' },
+  { pattern: /\bpowershell\s+.*-e(nc(odedcommand)?)\s+[A-Za-z0-9+\/=]{40,}/i, msg: 'PowerShell encoded command (obfuscated payload)' },
+  { pattern: /\becho\s+[A-Za-z0-9+\/=]{50,}\s*\|\s*base64\s+-d\s*\|\s*(bash|sh|python)/i, msg: 'Base64-decoded payload execution' },
+  { pattern: /\bdd\s+if=\/dev\/(zero|urandom)\s+of=\/dev\/[sh]d[a-z]/i, msg: 'Disk wipe command' },
+  { pattern: /\b(shred|wipe)\s+.*\/(etc|boot|home|root)/i, msg: 'Destructive wipe of critical system paths' },
+];
+
 // ── Alert dedup: suppress duplicate alert_type per session within cooldown window ──
 const DEDUP_COOLDOWN_MS = 30 * 60 * 1000; // 30 minutes
 // Key: "sessionId::alertType", Value: last fire timestamp
@@ -49,8 +108,9 @@ export function evaluateAlerts(event: TrackerEvent, config: Config): Alert[] {
 
   // Dangerous commands
   if (event.command && shouldAlert(config, 'destructive_commands', 'danger')) {
+    const cmdLower = event.command.toLowerCase();
     for (const pattern of config.dangerousCommands) {
-      if (event.command.toLowerCase().includes(pattern.toLowerCase())) {
+      if (cmdLower.includes(pattern.toLowerCase())) {
         const dangerExplanations: Record<string, string> = {
           'rm -rf': 'Can recursively delete entire directory trees without confirmation — data may be unrecoverable',
           'git push --force': 'Overwrites remote branch history, destroying work from other collaborators',
@@ -117,19 +177,7 @@ export function evaluateAlerts(event: TrackerEvent, config: Config): Alert[] {
 
   // ── NEW: Deployment detection ──
   if (event.command && shouldAlert(config, 'deployment', 'danger')) {
-    const deployPatterns: Array<{ pattern: RegExp; msg: string }> = [
-      { pattern: /\bdeploy\b.*(prod|production|live|release)/i, msg: 'Production deployment command' },
-      { pattern: /\b(npm|docker|nuget|cargo|gem|pip)\s+publish\b/i, msg: 'Package publish command' },
-      { pattern: /\b(kubectl|helm)\s+(apply|install|upgrade|rollout)/i, msg: 'Kubernetes cluster change' },
-      { pattern: /\b(docker\s+push|docker\s+compose\s+up.*--detach)/i, msg: 'Docker image push / production container' },
-      { pattern: /\b(terraform\s+apply|pulumi\s+up|cdk\s+deploy|sam\s+deploy|serverless\s+deploy)/i, msg: 'Infrastructure-as-code deployment' },
-      { pattern: /\bgit\s+push\b.*\b(main|master|release|production)\b/i, msg: 'Push to protected branch' },
-      { pattern: /\b(aws\s+(s3\s+sync|s3\s+cp|lambda\s+update|ecs\s+update-service))/i, msg: 'AWS service update' },
-      { pattern: /\b(gcloud\s+(app\s+deploy|run\s+deploy|functions\s+deploy))/i, msg: 'Google Cloud deployment' },
-      { pattern: /\b(az\s+(webapp\s+deploy|functionapp\s+deploy|aks\s+))/i, msg: 'Azure deployment' },
-      { pattern: /\b(fly\s+deploy|vercel\s+(--prod|deploy)|netlify\s+deploy\s+--prod|railway\s+up|heroku\s+.*push)/i, msg: 'Platform deployment' },
-    ];
-    for (const dp of deployPatterns) {
+    for (const dp of ALERT_DEPLOY_PATTERNS) {
       if (dp.pattern.test(event.command)) {
         alerts.push(makeAlert(event, 'deployment', 'danger',
           `🚀 ${dp.msg}: ${event.command.substring(0, 80)} — AI agent is deploying code; verify this is intentional`));
@@ -140,14 +188,7 @@ export function evaluateAlerts(event: TrackerEvent, config: Config): Alert[] {
 
   // ── NEW: SSH / Remote access ──
   if (event.command && shouldAlert(config, 'ssh_remote', 'danger')) {
-    const sshPatterns: Array<{ pattern: RegExp; msg: string }> = [
-      { pattern: /\bssh\s+/i, msg: 'SSH connection to remote server' },
-      { pattern: /\bscp\s+/i, msg: 'SCP file transfer' },
-      { pattern: /\brsync\s+.*:/i, msg: 'Rsync to remote host' },
-      { pattern: /\bsftp\s+/i, msg: 'SFTP file transfer' },
-      { pattern: /\b(nc|ncat|netcat)\s+/i, msg: 'Netcat network connection' },
-    ];
-    for (const sp of sshPatterns) {
+    for (const sp of ALERT_SSH_PATTERNS) {
       if (sp.pattern.test(event.command)) {
         if (!isDuplicate(event.session_id, 'ssh_remote', config)) {
           alerts.push(makeAlert(event, 'ssh_remote', 'danger',
@@ -160,14 +201,7 @@ export function evaluateAlerts(event: TrackerEvent, config: Config): Alert[] {
 
   // ── NEW: Data exfiltration ──
   if (event.command && shouldAlert(config, 'data_exfiltration', 'danger')) {
-    const exfilPatterns: Array<{ pattern: RegExp; msg: string }> = [
-      { pattern: /\bcurl\s+.*(-X\s*POST|--data|--upload-file|-F\s)/i, msg: 'curl sending data externally' },
-      { pattern: /\bcurl\s+.*\|\s*(bash|sh|python|node)/i, msg: 'curl piped to shell — remote code execution' },
-      { pattern: /\bwget\s+.*-O\s*-\s*\|\s*(bash|sh)/i, msg: 'wget piped to shell — remote code execution' },
-      { pattern: /\b(base64|xxd)\s+.*\|\s*(curl|wget|nc)/i, msg: 'Encoded data being sent externally' },
-      { pattern: /\b(tar|zip)\s+.*\|\s*(curl|nc|ssh)/i, msg: 'Archive piped to network' },
-    ];
-    for (const ep of exfilPatterns) {
+    for (const ep of ALERT_EXFIL_PATTERNS) {
       if (ep.pattern.test(event.command)) {
         alerts.push(makeAlert(event, 'data_exfiltration', 'danger',
           `🚨 ${ep.msg}: ${event.command.substring(0, 80)} — potential data leak or remote code execution`));
@@ -178,13 +212,7 @@ export function evaluateAlerts(event: TrackerEvent, config: Config): Alert[] {
 
   // ── NEW: Suspicious downloads ──
   if (event.command && shouldAlert(config, 'suspicious_download', 'warn')) {
-    const dlPatterns: Array<{ pattern: RegExp; msg: string }> = [
-      { pattern: /\b(curl|wget|Invoke-WebRequest|iwr)\s+.*(\.sh|\.bash|\.ps1|\.bat|\.cmd|\.exe|\.msi|\.dmg|\.AppImage)\b/i, msg: 'Downloading executable/script' },
-      { pattern: /\b(pip|pip3)\s+install\s+.*--index-url\s/i, msg: 'pip install from non-default index' },
-      { pattern: /\bnpm\s+install\s+.*--registry\s/i, msg: 'npm install from non-default registry' },
-      { pattern: /\b(curl|wget)\s+.*\b(pastebin|hastebin|ghostbin|rentry|transfer\.sh|0x0\.st)\b/i, msg: 'Download from paste/file-share service' },
-    ];
-    for (const dlp of dlPatterns) {
+    for (const dlp of ALERT_DL_PATTERNS) {
       if (dlp.pattern.test(event.command)) {
         if (!isDuplicate(event.session_id, 'suspicious_download', config)) {
           alerts.push(makeAlert(event, 'suspicious_download', 'warn',
@@ -224,34 +252,7 @@ export function evaluateAlerts(event: TrackerEvent, config: Config): Alert[] {
 
   // ── CRITICAL: Known malicious patterns (confirmed threats) ──
   if (event.command) {
-    const criticalPatterns: Array<{ pattern: RegExp; msg: string }> = [
-      // Reverse shells
-      { pattern: /\bbash\s+-i\s+>&\s*\/dev\/tcp\//i, msg: 'Reverse shell via /dev/tcp' },
-      { pattern: /\b(nc|ncat|netcat)\s+.*-e\s*(\/bin\/)?(ba)?sh/i, msg: 'Netcat reverse shell' },
-      { pattern: /\bpython[23]?\s+-c\s+.*socket.*connect/i, msg: 'Python reverse shell' },
-      { pattern: /\bperl\s+-e\s+.*socket.*INET/i, msg: 'Perl reverse shell' },
-      { pattern: /\bphp\s+-r\s+.*fsockopen/i, msg: 'PHP reverse shell' },
-      { pattern: /\brm\s+.*\/tmp\/f\s*;\s*mkfifo\s/i, msg: 'Named pipe reverse shell' },
-      // Crypto miners
-      { pattern: /\b(xmrig|minerd|cpuminer|cgminer|bfgminer|ethminer|nbminer)\b/i, msg: 'Cryptocurrency miner detected' },
-      { pattern: /\bstratum\+tcp:\/\//i, msg: 'Mining pool connection (stratum protocol)' },
-      // Credential harvesting
-      { pattern: /\bmimikatz\b/i, msg: 'Mimikatz credential harvester' },
-      { pattern: /\b(lazagne|credentialfileview|nirsoft)\b/i, msg: 'Known credential harvesting tool' },
-      { pattern: /\/etc\/shadow|SAM\s+SYSTEM|sekurlsa::logonpasswords/i, msg: 'Credential file exfiltration' },
-      // Persistence mechanisms
-      { pattern: /\bcrontab\s+-.*\|\s*(curl|wget|bash)/i, msg: 'Cron persistence with remote payload' },
-      { pattern: /\b(systemctl|launchctl)\s+(enable|load)\s+.*\.(service|plist)\s*$/i, msg: 'Service persistence installation' },
-      // Known C2 frameworks
-      { pattern: /\b(meterpreter|cobalt\s*strike|sliver|empire|covenant|havoc|brute\s*ratel)\b/i, msg: 'Known C2 framework component' },
-      // Encoded payload execution
-      { pattern: /\bpowershell\s+.*-e(nc(odedcommand)?)\s+[A-Za-z0-9+\/=]{40,}/i, msg: 'PowerShell encoded command (obfuscated payload)' },
-      { pattern: /\becho\s+[A-Za-z0-9+\/=]{50,}\s*\|\s*base64\s+-d\s*\|\s*(bash|sh|python)/i, msg: 'Base64-decoded payload execution' },
-      // Data destruction
-      { pattern: /\bdd\s+if=\/dev\/(zero|urandom)\s+of=\/dev\/[sh]d[a-z]/i, msg: 'Disk wipe command' },
-      { pattern: /\b(shred|wipe)\s+.*\/(etc|boot|home|root)/i, msg: 'Destructive wipe of critical system paths' },
-    ];
-    for (const cp of criticalPatterns) {
+    for (const cp of ALERT_CRITICAL_PATTERNS) {
       if (cp.pattern.test(event.command)) {
         alerts.push(makeAlert(event, 'critical_threat', 'critical',
           `☠️ CRITICAL THREAT: ${cp.msg} — "${event.command.substring(0, 100)}" — This is a known attack pattern. Machine may be compromised.`));

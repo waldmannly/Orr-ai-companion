@@ -6,8 +6,21 @@
  */
 
 import * as crypto from 'crypto';
-import { getDb } from '../storage/db';
+import { getDb, getDbGeneration } from '../storage/db';
+import type Database from 'better-sqlite3';
+import type { Statement } from 'better-sqlite3';
 import { TrackerEvent, SessionInfo, Alert } from '../parser/event-types';
+
+// ── Cached statements (auto-invalidate on db re-init) ──
+let lastGen = -1;
+const stmtCache = new Map<string, Statement>();
+function stmt(key: string, sql: string): Statement {
+  const gen = getDbGeneration();
+  if (gen !== lastGen) { stmtCache.clear(); lastGen = gen; }
+  let s = stmtCache.get(key);
+  if (!s) { s = getDb().prepare(sql); stmtCache.set(key, s); }
+  return s;
+}
 
 // ── Hash Chain (tamper-evident audit log) ──
 
@@ -18,6 +31,7 @@ let lastHash: string = '00000000000000000000000000000000000000000000000000000000
  */
 export function initHashChain(): void {
   const db = getDb();
+  stmtCache.clear();
   const row = db.prepare('SELECT hash FROM audit_chain ORDER BY seq DESC LIMIT 1').get() as { hash: string } | undefined;
   if (row) lastHash = row.hash;
 }
@@ -27,11 +41,10 @@ export function initHashChain(): void {
  * Each entry is: SHA-256(previous_hash + event_id + timestamp + event_type + risk_level + summary)
  */
 export function appendToChain(event: TrackerEvent): string {
-  const db = getDb();
   const payload = `${lastHash}|${event.id}|${event.timestamp}|${event.event_type}|${event.risk_level}|${event.summary || ''}`;
   const hash = crypto.createHash('sha256').update(payload).digest('hex');
 
-  db.prepare(`
+  stmt('appendChain', `
     INSERT INTO audit_chain (event_id, hash, previous_hash, timestamp)
     VALUES (?, ?, ?, ?)
   `).run(event.id, hash, lastHash, event.timestamp);

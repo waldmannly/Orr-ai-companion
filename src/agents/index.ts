@@ -7,8 +7,21 @@
  * and visualized in the dashboard.
  */
 
-import { getDb } from '../storage/db';
+import { getDb, getDbGeneration } from '../storage/db';
+import type Database from 'better-sqlite3';
+import type { Statement } from 'better-sqlite3';
 import type { RiskLevel } from '../parser/event-types';
+
+// ── Cached statements (auto-invalidate on db re-init) ──
+let lastGen = -1;
+const stmtCache = new Map<string, Statement>();
+function stmt(key: string, sql: string): Statement {
+  const gen = getDbGeneration();
+  if (gen !== lastGen) { stmtCache.clear(); lastGen = gen; }
+  let s = stmtCache.get(key);
+  if (!s) { s = getDb().prepare(sql); stmtCache.set(key, s); }
+  return s;
+}
 
 // ── Types ──
 
@@ -111,20 +124,19 @@ export function upsertAgentNode(params: {
   provider: string;
   trust_level?: 'full' | 'limited' | 'sandboxed';
 }): AgentNode {
-  const db = getDb();
   const now = new Date().toISOString();
-  const existing = db.prepare(
+  const existing = stmt('getAgentNodeRaw',
     'SELECT * FROM agent_nodes WHERE id = ? AND session_id = ?'
   ).get(params.id, params.session_id) as any;
 
   if (existing) {
-    db.prepare(`
+    stmt('updateAgentNode', `
       UPDATE agent_nodes SET last_seen_at = ?, event_count = event_count + 1,
         parent_id = COALESCE(?, parent_id)
       WHERE id = ? AND session_id = ?
     `).run(now, params.parent_id, params.id, params.session_id);
   } else {
-    db.prepare(`
+    stmt('insertAgentNode', `
       INSERT INTO agent_nodes (id, session_id, parent_id, provider, trust_level, created_at, last_seen_at, event_count)
       VALUES (?, ?, ?, ?, ?, ?, ?, 1)
     `).run(params.id, params.session_id, params.parent_id, params.provider,
@@ -135,27 +147,27 @@ export function upsertAgentNode(params: {
 
 /** Increment danger count for an agent */
 export function incrementAgentDanger(agentId: string, sessionId: string): void {
-  getDb().prepare(
+  stmt('incDanger',
     'UPDATE agent_nodes SET danger_count = danger_count + 1 WHERE id = ? AND session_id = ?'
   ).run(agentId, sessionId);
 }
 
 /** Set scopes for an agent */
 export function setAgentScopes(agentId: string, sessionId: string, allowed: string[], denied: string[]): void {
-  getDb().prepare(
+  stmt('setScopes',
     'UPDATE agent_nodes SET allowed_scopes = ?, denied_scopes = ? WHERE id = ? AND session_id = ?'
   ).run(JSON.stringify(allowed), JSON.stringify(denied), agentId, sessionId);
 }
 
 export function getAgentNode(id: string, sessionId: string): AgentNode | null {
-  const row = getDb().prepare(
+  const row = stmt('getAgentNode',
     'SELECT * FROM agent_nodes WHERE id = ? AND session_id = ?'
   ).get(id, sessionId) as any;
   return row ? hydrateAgent(row) : null;
 }
 
 export function getSessionAgentNodes(sessionId: string): AgentNode[] {
-  const rows = getDb().prepare(
+  const rows = stmt('getSessionAgents',
     'SELECT * FROM agent_nodes WHERE session_id = ? ORDER BY created_at ASC'
   ).all(sessionId) as any[];
   return rows.map(hydrateAgent);
@@ -179,7 +191,7 @@ export function recordDelegation(params: {
   reason: string;
 }): DelegationRecord {
   const now = new Date().toISOString();
-  const info = getDb().prepare(`
+  const info = stmt('insertDelegation', `
     INSERT INTO delegation_records (parent_agent_id, child_agent_id, session_id, delegated_scopes, timestamp, reason)
     VALUES (?, ?, ?, ?, ?, ?)
   `).run(params.parent_agent_id, params.child_agent_id, params.session_id,
@@ -188,12 +200,12 @@ export function recordDelegation(params: {
 }
 
 export function getDelegation(id: number): DelegationRecord | null {
-  const row = getDb().prepare('SELECT * FROM delegation_records WHERE id = ?').get(id) as any;
+  const row = stmt('getDelegation', 'SELECT * FROM delegation_records WHERE id = ?').get(id) as any;
   return row ? { ...row, delegated_scopes: JSON.parse(row.delegated_scopes || '[]') } : null;
 }
 
 export function getSessionDelegations(sessionId: string): DelegationRecord[] {
-  const rows = getDb().prepare(
+  const rows = stmt('getSessionDelegations',
     'SELECT * FROM delegation_records WHERE session_id = ? ORDER BY timestamp ASC'
   ).all(sessionId) as any[];
   return rows.map(r => ({ ...r, delegated_scopes: JSON.parse(r.delegated_scopes || '[]') }));
@@ -209,11 +221,11 @@ export function recordAuthorityViolation(params: {
   severity: RiskLevel;
 }): AuthorityViolation {
   const now = new Date().toISOString();
-  const info = getDb().prepare(`
+  const info = stmt('insertViolation', `
     INSERT INTO authority_violations (agent_id, session_id, timestamp, violation_type, message, severity)
     VALUES (?, ?, ?, ?, ?, ?)
   `).run(params.agent_id, params.session_id, now, params.violation_type, params.message, params.severity);
-  return getDb().prepare('SELECT * FROM authority_violations WHERE id = ?')
+  return stmt('getViolation', 'SELECT * FROM authority_violations WHERE id = ?')
     .get(Number(info.lastInsertRowid)) as AuthorityViolation;
 }
 
@@ -307,13 +319,17 @@ export function checkAgentAuthority(
 }
 
 /** Lightweight glob-like match (no dependency) */
+const regexCache = new Map<string, RegExp>();
 function minimatchLite(target: string, pattern: string): boolean {
   if (pattern === '*' || pattern === '**') return true;
   if (pattern.startsWith('**/')) return target.includes(pattern.slice(3));
   if (pattern.endsWith('/**')) return target.startsWith(pattern.slice(0, -3));
   if (pattern.includes('*')) {
-    // Escape regex special chars EXCEPT *, then convert * to .*
-    const re = new RegExp('^' + pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$');
+    let re = regexCache.get(pattern);
+    if (!re) {
+      re = new RegExp('^' + pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$');
+      regexCache.set(pattern, re);
+    }
     return re.test(target);
   }
   return target === pattern;
