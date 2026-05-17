@@ -428,3 +428,41 @@ All of these work today on localhost.
 | 13 | PR bot token handling hardening | Medium |
 | 14 | Wire up team auth as opt-in | Medium |
 | 15 | Explicit JSON body limit | Trivial |
+
+---
+
+## Second Security Audit — Round 2
+
+**Date:** May 17, 2026  
+**Scope:** Deeper review focusing on injection vectors, DoS resilience, timing attacks, symlink attacks, and data integrity  
+**Status:** All findings fixed and tested (826 unit tests passing)
+
+### Findings & Fixes Applied
+
+| # | Severity | Finding | Fix |
+|---|----------|---------|-----|
+| 1 | CRITICAL | SQL string interpolation in `enforceRetention()` — `db.exec()` with template literals | Converted all 4 queries to parameterized `db.prepare().run(cutoff)` |
+| 2 | CRITICAL | Widget queries allow arbitrary SQL (DROP, DELETE, ATTACH) + unbounded results | Block dangerous SQL keywords, enforce automatic `LIMIT 1000`, cap result arrays, suppress error details |
+| 3 | HIGH | CSV formula injection in exports — cells starting with `=`, `+`, `@`, `\t` not escaped | Added `escapeCsvCell()` that prefixes formula-trigger characters with `'` |
+| 4 | HIGH | Symlink attack in watcher — no validation before tailing transcript files | Added `realpathSync` check; skip files where real path differs from resolved path |
+| 5 | HIGH | `modifyAndRelease()` accepts any input without validation | Added empty/whitespace rejection and 10KB length cap |
+| 6 | MEDIUM | Timing attack on API key auth — early return on no-match leaks timing | Added dummy DB operation on failure path for constant-time behavior |
+| 7 | MEDIUM | Unbounded export date range — no max span or rate limiting | Capped exports at 90 days max range, added rate limiting (10/min) on all export endpoints |
+| 8 | MEDIUM | SSE connection DoS — unlimited concurrent connections | Capped at 20 concurrent SSE connections with 503 response |
+| 9 | MEDIUM | Audit chain doesn't detect deleted rows (sequence gaps) | Added gap detection in `verifyChain()` — checks sequential `seq` values |
+| 10 | MEDIUM | Killed session state lost on restart (in-memory Set only) | `tailTranscript()` and `isSessionKilled()` now check `isSessionKilledInDb()` as fallback |
+| 11 | MEDIUM | No rate limiting on team user creation | Added 5/min rate limit on `POST /api/team/users` |
+| 12 | MEDIUM | ReDoS risk in rule pack pattern matching | Added `safeRegexTest()` with 500-char pattern limit and 10KB text cap |
+
+### Files Modified
+
+- `src/storage/db.ts` — Parameterized `enforceRetention()` queries
+- `src/plugins/index.ts` — Hardened `executeWidgetQuery()` with SQL keyword blocking, auto-LIMIT, error suppression
+- `src/export/index.ts` — Added `escapeCsvCell()` for formula injection protection
+- `src/watcher/index.ts` — Symlink validation, killed session DB persistence check
+- `src/commands/index.ts` — Input validation in `modifyAndRelease()`
+- `src/team/index.ts` — Constant-time auth failure path
+- `src/dashboard/server.ts` — SSE connection cap, export date range caps, export rate limiting, team user creation rate limit
+- `src/compliance/index.ts` — Sequence gap detection in `verifyChain()`
+- `src/rules/packs.ts` — Safe regex execution with length limits
+- `tests/unit-test.mjs` — 9 new security tests (826 total, up from 817)

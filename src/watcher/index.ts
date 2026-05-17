@@ -3,7 +3,7 @@ import { LogTailer } from './log-tailer';
 import { SessionParserState } from '../parser';
 import { classifyRiskWithReasons, extractMemoryOp } from '../risk/classifier';
 import { evaluateAlerts, persistAlerts, BURSTY_ALERT_TYPES } from '../alerts/engine';
-import { initDb, upsertSession, insertEvent, insertMemoryOp, getSession, markSessionEnded, enforceRetention, insertAlert, getRecentSessionAlertBurst, upsertBaseline, getBaseline, insertGuardrailViolation, setSessionBranch, getTailerOffset, setTailerOffset, markSessionKilled, addDailyTokens, getDailyTokenTotal, vacuumDb } from '../storage/db';
+import { initDb, upsertSession, insertEvent, insertMemoryOp, getSession, markSessionEnded, enforceRetention, insertAlert, getRecentSessionAlertBurst, upsertBaseline, getBaseline, insertGuardrailViolation, setSessionBranch, getTailerOffset, setTailerOffset, markSessionKilled, addDailyTokens, getDailyTokenTotal, vacuumDb, isSessionKilledInDb } from '../storage/db';
 import { SessionInfo } from '../parser/event-types';
 import { LogProvider, TranscriptFile, getActiveProviders, createCustomProvider } from '../providers';
 import { broadcastSSE } from '../dashboard/server';
@@ -19,6 +19,8 @@ import { upsertAgentNode, incrementAgentDanger, checkAgentAuthority } from '../a
 import { evaluateAutoResponse } from '../response';
 import { evaluatePluginRules } from '../plugins';
 import { execSync } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
 
 // Singleton reference for API access
 let activeWatcher: Watcher | null = null;
@@ -147,6 +149,18 @@ export class Watcher {
   }
 
   private tailTranscript(file: TranscriptFile, provider: LogProvider) {
+    // Symlink protection: ensure the file resolves to within expected directories
+    try {
+      const realPath = fs.realpathSync(file.filePath);
+      const resolvedPath = path.resolve(file.filePath);
+      if (realPath !== resolvedPath) {
+        console.warn(`[watcher] Symlink detected — skipping: ${file.filePath} → ${realPath}`);
+        return;
+      }
+    } catch {
+      // File doesn't exist yet (will be created); allow tailing
+    }
+
     // Track which provider owns this session
     this.sessionProvider.set(file.sessionId, provider);
 
@@ -156,8 +170,11 @@ export class Watcher {
     }
     this.sessionFiles.get(file.sessionId)!.add(file.filePath);
 
-    // Don't tail already-killed sessions
-    if (this.killedSessions.has(file.sessionId)) return;
+    // Don't tail already-killed sessions (check in-memory cache and DB for persistence across restarts)
+    if (this.killedSessions.has(file.sessionId) || isSessionKilledInDb(file.sessionId)) {
+      this.killedSessions.add(file.sessionId); // sync to in-memory cache
+      return;
+    }
 
     // Ensure session exists
     const existing = getSession(file.sessionId);
@@ -243,7 +260,7 @@ export class Watcher {
 
   /** Check if a session is killed */
   isSessionKilled(sessionId: string): boolean {
-    return this.killedSessions.has(sessionId);
+    return this.killedSessions.has(sessionId) || isSessionKilledInDb(sessionId);
   }
 
   private processLine(line: string, file: TranscriptFile) {

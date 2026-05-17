@@ -60,7 +60,12 @@ export function verifyChain(): { valid: boolean; brokenAt?: number; totalEntries
   if (rows.length === 0) return { valid: true, totalEntries: 0 };
 
   let prevHash = '0000000000000000000000000000000000000000000000000000000000000000';
+  let prevSeq: number | null = null;
   for (const row of rows) {
+    // Detect gaps in sequence (deleted rows)
+    if (prevSeq !== null && row.seq !== prevSeq + 1) {
+      return { valid: false, brokenAt: row.seq, totalEntries: rows.length };
+    }
     const payload = `${prevHash}|${row.event_id}|${row.timestamp}|${row.event_type}|${row.risk_level}|${row.summary || ''}`;
     const expectedHash = crypto.createHash('sha256').update(payload).digest('hex');
     if (expectedHash !== row.hash) {
@@ -70,6 +75,7 @@ export function verifyChain(): { valid: boolean; brokenAt?: number; totalEntries
       return { valid: false, brokenAt: row.seq, totalEntries: rows.length };
     }
     prevHash = row.hash;
+    prevSeq = row.seq;
   }
 
   return { valid: true, totalEntries: rows.length };

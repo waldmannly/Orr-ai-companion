@@ -195,23 +195,38 @@ export function getAllPluginRules(): Array<PluginRule & { plugin_id: string }> {
   return rules;
 }
 
-/** Execute a widget query safely (read-only) */
+/** Execute a widget query safely (read-only, bounded) */
 export function executeWidgetQuery(pluginId: string, widgetId: string, db: any): unknown {
   const plugin = plugins.get(pluginId);
   if (!plugin) return null;
   const widget = plugin.manifest.widgets?.find(w => w.id === widgetId);
   if (!widget) return null;
 
-  // Only allow SELECT queries
+  // Only allow SELECT queries — block write/DDL operations
   const trimmed = widget.query.trim().toUpperCase();
   if (!trimmed.startsWith('SELECT')) {
     throw new Error('Widget queries must be SELECT statements');
   }
+  // Block dangerous SQL patterns (DDL, DML, pragmas, attach)
+  const blocked = /\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|ATTACH|DETACH|PRAGMA|REPLACE)\b/i;
+  if (blocked.test(widget.query)) {
+    throw new Error('Widget queries cannot modify data');
+  }
+  // Block subqueries that could be used for cross-join DoS
+  const crossJoinCount = (widget.query.toUpperCase().match(/\bJOIN\b/g) || []).length;
+  if (crossJoinCount > 2) {
+    throw new Error('Widget queries limited to 2 JOINs maximum');
+  }
+
+  // Enforce LIMIT to prevent memory exhaustion
+  const hasLimit = /\bLIMIT\b/i.test(widget.query);
+  const safeQuery = hasLimit ? widget.query : `${widget.query} LIMIT 1000`;
 
   try {
-    return db.prepare(widget.query).all();
+    const result = db.prepare(safeQuery).all();
+    return Array.isArray(result) ? result.slice(0, 1000) : result;
   } catch (err) {
-    return { error: String(err) };
+    return { error: 'Widget query failed' };
   }
 }
 

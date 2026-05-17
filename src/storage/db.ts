@@ -437,11 +437,11 @@ export function vacuumDb(): { before: number; after: number } {
 export function enforceRetention(maxAgeDays: number) {
   if (maxAgeDays <= 0) return;
   const cutoff = new Date(Date.now() - maxAgeDays * 86400000).toISOString();
-  db.exec(`DELETE FROM events WHERE timestamp < '${cutoff}'`);
-  db.exec(`DELETE FROM alerts WHERE timestamp < '${cutoff}'`);
-  db.exec(`DELETE FROM memory_operations WHERE timestamp < '${cutoff}'`);
+  db.prepare('DELETE FROM events WHERE timestamp < ?').run(cutoff);
+  db.prepare('DELETE FROM alerts WHERE timestamp < ?').run(cutoff);
+  db.prepare('DELETE FROM memory_operations WHERE timestamp < ?').run(cutoff);
   // Clean up sessions with no remaining events
-  db.exec(`DELETE FROM sessions WHERE id NOT IN (SELECT DISTINCT session_id FROM events) AND started_at < '${cutoff}'`);
+  db.prepare('DELETE FROM sessions WHERE id NOT IN (SELECT DISTINCT session_id FROM events) AND started_at < ?').run(cutoff);
 }
 
 // ── Session CRUD ──

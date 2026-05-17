@@ -109,7 +109,11 @@ export function authenticateByKey(apiKey: string): TeamUser | null {
   const row = getDb().prepare(
     'SELECT * FROM team_users WHERE api_key_hash = ? AND active = 1'
   ).get(keyHash) as any;
-  if (!row) return null;
+  if (!row) {
+    // Constant-time: perform a dummy write so failure path takes similar time
+    getDb().prepare('SELECT 1').get();
+    return null;
+  }
 
   // Update last_seen
   getDb().prepare('UPDATE team_users SET last_seen_at = ? WHERE id = ?')

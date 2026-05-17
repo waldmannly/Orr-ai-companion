@@ -240,6 +240,15 @@ export function evaluatePackRules(event: TrackerEvent): RiskSignal[] {
   return signals;
 }
 
+/** Safely test a regex pattern with length limits to prevent ReDoS */
+function safeRegexTest(pattern: string, text: string): boolean {
+  // Reject patterns that are excessively complex
+  if (pattern.length > 500) return false;
+  // Limit text length to prevent catastrophic backtracking on large inputs
+  const safeText = text.length > 10000 ? text.substring(0, 10000) : text;
+  try { return new RegExp(pattern, 'i').test(safeText); } catch { return safeText.toLowerCase().includes(pattern.toLowerCase()); }
+}
+
 function matchesRule(event: TrackerEvent, rule: RuleDefinition): boolean {
   const m = rule.match;
 
@@ -251,9 +260,7 @@ function matchesRule(event: TrackerEvent, rule: RuleDefinition): boolean {
   // Command pattern check (any pattern matches)
   if (m.commandPatterns && m.commandPatterns.length > 0) {
     if (!event.command) return false;
-    const cmdMatched = m.commandPatterns.some(pattern => {
-      try { return new RegExp(pattern, 'i').test(event.command!); } catch { return event.command!.toLowerCase().includes(pattern.toLowerCase()); }
-    });
+    const cmdMatched = m.commandPatterns.some(pattern => safeRegexTest(pattern, event.command!));
     if (!cmdMatched) return false;
   }
 
@@ -261,9 +268,7 @@ function matchesRule(event: TrackerEvent, rule: RuleDefinition): boolean {
   if (m.summaryPatterns && m.summaryPatterns.length > 0) {
     const text = (event.summary || '') + (event.raw_log || '');
     if (!text) return false;
-    const sumMatched = m.summaryPatterns.some(pattern => {
-      try { return new RegExp(pattern, 'i').test(text); } catch { return text.toLowerCase().includes(pattern.toLowerCase()); }
-    });
+    const sumMatched = m.summaryPatterns.some(pattern => safeRegexTest(pattern, text));
     if (!sumMatched) return false;
   }
 
@@ -273,6 +278,7 @@ function matchesRule(event: TrackerEvent, rule: RuleDefinition): boolean {
     const fileMatched = event.file_paths.some(fp => {
       const normalized = fp.replace(/\\/g, '/');
       return m.filePatterns!.some(pattern => {
+        if (pattern.length > 500) return false;
         // Simple glob: ** = anything, * = segment
         const regex = pattern
           .replace(/\./g, '\\.')

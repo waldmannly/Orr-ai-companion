@@ -199,6 +199,10 @@ export function modifyAndRelease(
   const cmd = getCommandById(id);
   if (!cmd || cmd.status !== 'blocked') return null;
 
+  // Validate modified command
+  if (!modifiedCommand || !modifiedCommand.trim()) return null;
+  if (modifiedCommand.length > 10000) return null;
+
   const now = new Date().toISOString();
   getDb().prepare(
     `UPDATE command_queue

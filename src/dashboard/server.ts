@@ -141,8 +141,12 @@ export function createDashboardServer(config: Config): express.Express {
 
   // ── API Routes ──
 
-  // SSE — real-time event streaming
+  // SSE — real-time event streaming (capped to prevent connection DoS)
+  const MAX_SSE_CLIENTS = 20;
   app.get('/api/events/stream', (req, res) => {
+    if (sseClients.size >= MAX_SSE_CLIENTS) {
+      return res.status(503).json({ error: 'Too many SSE connections' });
+    }
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
@@ -859,20 +863,34 @@ export function createDashboardServer(config: Config): express.Express {
   });
 
   // ── Export & Reporting ──
+  const MAX_EXPORT_DAYS = 90;
+  function capExportRange(startStr: string, endStr: string): { start: string; end: string } | null {
+    const s = new Date(startStr);
+    const e = new Date(endStr);
+    if (isNaN(s.getTime()) || isNaN(e.getTime())) return null;
+    const diffMs = e.getTime() - s.getTime();
+    if (diffMs < 0 || diffMs > MAX_EXPORT_DAYS * 86400_000) return null;
+    return { start: s.toISOString(), end: e.toISOString() };
+  }
 
   app.get('/api/export/events', (req, res) => {
+    if (rateLimit('export', 10)) {
+      return res.status(429).json({ error: 'Export rate limit exceeded. Try again in a minute.' });
+    }
     const start = (req.query.start as string) || new Date(Date.now() - 7 * 86400_000).toISOString();
     const end = (req.query.end as string) || new Date().toISOString();
+    const range = capExportRange(start, end);
+    if (!range) return res.status(400).json({ error: `Invalid date range. Maximum export span is ${MAX_EXPORT_DAYS} days.` });
     const format = (req.query.format as string) || 'json';
     const sessionId = req.query.session_id as string | undefined;
     try {
       if (format === 'csv') {
         res.setHeader('Content-Type', 'text/csv');
         res.setHeader('Content-Disposition', 'attachment; filename="events-export.csv"');
-        res.send(exportEventsCSV(start, end, sessionId));
+        res.send(exportEventsCSV(range.start, range.end, sessionId));
       } else {
         res.setHeader('Content-Disposition', 'attachment; filename="events-export.json"');
-        res.json(exportEventsJSON(start, end, sessionId));
+        res.json(exportEventsJSON(range.start, range.end, sessionId));
       }
     } catch (err: any) {
       res.status(500).json({ error: 'Export too large. Try narrowing the date range or filtering by session.' });
@@ -880,17 +898,27 @@ export function createDashboardServer(config: Config): express.Express {
   });
 
   app.get('/api/export/alerts', (req, res) => {
+    if (rateLimit('export', 10)) {
+      return res.status(429).json({ error: 'Export rate limit exceeded. Try again in a minute.' });
+    }
     const start = (req.query.start as string) || new Date(Date.now() - 7 * 86400_000).toISOString();
     const end = (req.query.end as string) || new Date().toISOString();
+    const range = capExportRange(start, end);
+    if (!range) return res.status(400).json({ error: `Invalid date range. Maximum export span is ${MAX_EXPORT_DAYS} days.` });
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', 'attachment; filename="alerts-export.csv"');
-    res.send(exportAlertsCSV(start, end));
+    res.send(exportAlertsCSV(range.start, range.end));
   });
 
   app.get('/api/export/incident-report', (req, res) => {
+    if (rateLimit('export', 10)) {
+      return res.status(429).json({ error: 'Export rate limit exceeded. Try again in a minute.' });
+    }
     const start = (req.query.start as string) || new Date(Date.now() - 7 * 86400_000).toISOString();
     const end = (req.query.end as string) || new Date().toISOString();
-    res.json(generateIncidentReport(start, end));
+    const range = capExportRange(start, end);
+    if (!range) return res.status(400).json({ error: `Invalid date range. Maximum export span is ${MAX_EXPORT_DAYS} days.` });
+    res.json(generateIncidentReport(range.start, range.end));
   });
 
   app.get('/api/export/weekly-summary', (req, res) => {
@@ -1020,6 +1048,9 @@ export function createDashboardServer(config: Config): express.Express {
   });
 
   app.post('/api/team/users', (req, res) => {
+    if (rateLimit('team-user-create', 5)) {
+      return res.status(429).json({ error: 'Too many user creation requests. Try again in a minute.' });
+    }
     const { name, role } = req.body || {};
     if (!name) return res.status(400).json({ error: 'name required' });
     const { user, apiKey } = createUser(name, role || 'viewer');

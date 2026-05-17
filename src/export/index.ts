@@ -39,6 +39,17 @@ export interface WeeklySummary {
 
 // ── Export Functions ──
 
+/** Escape a CSV cell to prevent formula injection in spreadsheet applications */
+function escapeCsvCell(value: string): string {
+  if (!value) return '';
+  // Prefix cells starting with formula-trigger characters to neutralize them
+  const first = value.charAt(0);
+  if (first === '=' || first === '+' || first === '-' || first === '@' || first === '\t' || first === '\r') {
+    return "'" + value;
+  }
+  return value;
+}
+
 /**
  * Export all events in a date range as CSV.
  */
@@ -56,8 +67,8 @@ export function exportEventsCSV(start: string, end: string, sessionId?: string):
   const headers = 'timestamp,session_id,event_type,risk_level,summary,file_paths,command,agent_id,source_tool,token_count';
   const lines = rows.map(r => {
     const files = r.file_paths || '[]';
-    const summary = (r.summary || '').replace(/"/g, '""');
-    const command = (r.command || '').replace(/"/g, '""');
+    const summary = escapeCsvCell((r.summary || '').replace(/"/g, '""'));
+    const command = escapeCsvCell((r.command || '').replace(/"/g, '""'));
     return `"${r.timestamp}","${r.session_id}","${r.event_type}","${r.risk_level}","${summary}","${files}","${command}","${r.agent_id}","${r.source_tool}",${r.token_count || 0}`;
   });
 
