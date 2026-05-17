@@ -6615,6 +6615,226 @@ test('PR bot config defaults all present', () => {
 });
 
 // ══════════════════════════════════════════════════
+//  38. Cost Estimation
+// ══════════════════════════════════════════════════
+console.log('═══ 38. Cost Estimation ═══');
+
+const costMod = await import('../dist/cost/index.js');
+const {
+  estimateCost, getRateForProvider, getSessionCost,
+  getCostSummary, getCostRecommendations, getTodayCost,
+  getAvailablePricing, DEFAULT_PRICING,
+} = costMod;
+
+function makeCostConfig(overrides = {}) {
+  const base = makeConfig();
+  return {
+    ...base,
+    tokenBudget: { maxPerSession: 0, maxPerDay: 0, action: 'warn' },
+    costEstimation: { customPricing: [] },
+    ...overrides,
+  };
+}
+
+test('estimateCost calculates correct cost for claude-code', () => {
+  const cfg = makeCostConfig();
+  const result = estimateCost(1_000_000, 'claude-code', cfg);
+  assert.strictEqual(result.tokens, 1_000_000);
+  assert.strictEqual(result.costUSD, 10.00); // $10/1M blended
+  assert.strictEqual(result.provider, 'claude-code');
+  assert.strictEqual(result.ratePer1M, 10.00);
+});
+
+test('estimateCost calculates correct cost for vscode-copilot', () => {
+  const cfg = makeCostConfig();
+  const result = estimateCost(500_000, 'vscode-copilot', cfg);
+  assert.strictEqual(result.tokens, 500_000);
+  assert.strictEqual(result.costUSD, 2.50); // $5/1M * 0.5M
+  assert.strictEqual(result.ratePer1M, 5.00);
+});
+
+test('estimateCost calculates correct cost for gemini-cli', () => {
+  const cfg = makeCostConfig();
+  const result = estimateCost(2_000_000, 'gemini-cli', cfg);
+  assert.strictEqual(result.costUSD, 6.00); // $3/1M * 2M
+});
+
+test('estimateCost uses default rate for unknown provider', () => {
+  const cfg = makeCostConfig();
+  const result = estimateCost(1_000_000, 'unknown-tool', cfg);
+  assert.strictEqual(result.costUSD, 5.00); // $5 default fallback
+});
+
+test('estimateCost respects custom pricing from config', () => {
+  const cfg = makeCostConfig({
+    costEstimation: {
+      customPricing: [
+        { provider: 'claude-code', model: 'custom', name: 'Custom', costPer1MTokens: 20.00 },
+      ],
+    },
+  });
+  const result = estimateCost(1_000_000, 'claude-code', cfg);
+  assert.strictEqual(result.costUSD, 20.00);
+  assert.strictEqual(result.ratePer1M, 20.00);
+});
+
+test('getRateForProvider returns fallback for unknown', () => {
+  const cfg = makeCostConfig();
+  assert.strictEqual(getRateForProvider('claude-code', cfg), 10.00);
+  assert.strictEqual(getRateForProvider('vscode-copilot', cfg), 5.00);
+  assert.strictEqual(getRateForProvider('gemini-cli', cfg), 3.00);
+  assert.strictEqual(getRateForProvider('unknown', cfg), 5.00);
+});
+
+test('getSessionCost returns null for non-existent session', () => {
+  const cfg = makeCostConfig();
+  const result = getSessionCost('non-existent-session-xyz', cfg);
+  assert.strictEqual(result, null);
+});
+
+test('getSessionCost calculates cost for existing session', () => {
+  const sid = 'cost-test-session-' + Date.now();
+  upsertSession({
+    id: sid, workspace: '/test', project_name: 'cost-project',
+    started_at: new Date().toISOString(), ended_at: null,
+    total_events: 2, danger_count: 0, warn_count: 0, source_tool: 'claude-code',
+  });
+  const t1 = new Date(Date.now() - 2000).toISOString();
+  const t2 = new Date(Date.now() - 1000).toISOString();
+  insertEvent(makeEvent({ session_id: sid, token_count: 5000, source_tool: 'claude-code', timestamp: t1, summary: 'cost event 1' }));
+  insertEvent(makeEvent({ session_id: sid, token_count: 3000, source_tool: 'claude-code', timestamp: t2, summary: 'cost event 2' }));
+
+  const cfg = makeCostConfig();
+  const result = getSessionCost(sid, cfg);
+  assert.ok(result);
+  assert.strictEqual(result.sessionId, sid);
+  assert.strictEqual(result.provider, 'claude-code');
+  assert.strictEqual(result.tokens, 8000);
+  // 8000 / 1M * $10 = $0.08
+  assert.ok(Math.abs(result.costUSD - 0.08) < 0.001);
+});
+
+test('getCostSummary returns valid structure', () => {
+  const cfg = makeCostConfig();
+  const summary = getCostSummary(cfg, 30);
+  assert.ok('totalTokens' in summary);
+  assert.ok('totalCostUSD' in summary);
+  assert.ok('dailyAvgUSD' in summary);
+  assert.ok('monthlyEstimateUSD' in summary);
+  assert.ok('byProvider' in summary);
+  assert.ok('topSessions' in summary);
+  assert.ok('dailyCosts' in summary);
+  assert.ok('daysTracked' in summary);
+  assert.ok(typeof summary.totalTokens === 'number');
+  assert.ok(typeof summary.totalCostUSD === 'number');
+  assert.ok(Array.isArray(summary.topSessions));
+});
+
+test('getCostSummary includes sessions from test data', () => {
+  const cfg = makeCostConfig();
+  const summary = getCostSummary(cfg, 30);
+  // We just inserted a session with tokens above
+  assert.ok(summary.totalTokens > 0, 'should have some token usage');
+  assert.ok(summary.totalCostUSD > 0, 'should have non-zero cost');
+});
+
+test('getCostRecommendations returns array', () => {
+  const cfg = makeCostConfig();
+  const recs = getCostRecommendations(cfg);
+  assert.ok(Array.isArray(recs));
+  // With no budget set, should at least get the "no budget" recommendation
+  for (const rec of recs) {
+    assert.ok(rec.id);
+    assert.ok(['high', 'medium', 'low'].includes(rec.priority));
+    assert.ok(rec.title);
+    assert.ok(rec.detail);
+    assert.ok(rec.estimatedSavings);
+  }
+});
+
+test('getCostRecommendations suggests budget when none set', () => {
+  const cfg = makeCostConfig({ tokenBudget: { maxPerSession: 0, maxPerDay: 0, action: 'warn' } });
+  const recs = getCostRecommendations(cfg);
+  const budgetRec = recs.find(r => r.id === 'no-budget-set');
+  assert.ok(budgetRec, 'should recommend setting a budget');
+  assert.strictEqual(budgetRec.priority, 'medium');
+});
+
+test('getCostRecommendations skips budget rec when budget set', () => {
+  const cfg = makeCostConfig({ tokenBudget: { maxPerSession: 50000, maxPerDay: 200000, action: 'warn' } });
+  const recs = getCostRecommendations(cfg);
+  const budgetRec = recs.find(r => r.id === 'no-budget-set');
+  assert.strictEqual(budgetRec, undefined, 'should not suggest budget when already set');
+});
+
+test('getTodayCost returns valid structure', () => {
+  const cfg = makeCostConfig();
+  const today = getTodayCost(cfg);
+  assert.ok('tokens' in today);
+  assert.ok('costUSD' in today);
+  assert.ok('budget' in today);
+  assert.ok('percentUsed' in today);
+  assert.ok(typeof today.tokens === 'number');
+  assert.ok(typeof today.costUSD === 'number');
+});
+
+test('getTodayCost with budget shows percent used', () => {
+  // Add some token usage for today
+  const sid = 'cost-today-session-' + Date.now();
+  upsertSession({
+    id: sid, workspace: '/test', project_name: 'cost-today-project',
+    started_at: new Date().toISOString(), ended_at: null,
+    total_events: 1, danger_count: 0, warn_count: 0, source_tool: 'vscode-copilot',
+  });
+  addDailyTokens(sid, 10000);
+
+  const cfg = makeCostConfig({ tokenBudget: { maxPerSession: 0, maxPerDay: 100000, action: 'warn' } });
+  const today = getTodayCost(cfg);
+  assert.ok(today.tokens >= 10000);
+  assert.strictEqual(today.budget, 100000);
+  assert.ok(today.percentUsed >= 10); // at least 10% used
+});
+
+test('getAvailablePricing returns default pricing when no custom', () => {
+  const cfg = makeCostConfig();
+  const pricing = getAvailablePricing(cfg);
+  assert.deepStrictEqual(pricing, DEFAULT_PRICING);
+  assert.ok(pricing.length >= 9);
+});
+
+test('getAvailablePricing returns custom pricing when configured', () => {
+  const custom = [{ provider: 'my-tool', model: 'my-model', name: 'My Model', costPer1MTokens: 42 }];
+  const cfg = makeCostConfig({ costEstimation: { customPricing: custom } });
+  const pricing = getAvailablePricing(cfg);
+  assert.deepStrictEqual(pricing, custom);
+});
+
+test('DEFAULT_PRICING covers main providers', () => {
+  const providers = [...new Set(DEFAULT_PRICING.map(p => p.provider))];
+  assert.ok(providers.includes('claude-code'));
+  assert.ok(providers.includes('vscode-copilot'));
+  assert.ok(providers.includes('gemini-cli'));
+});
+
+test('costEstimation config merges correctly', () => {
+  const raw = {
+    costEstimation: {
+      customPricing: [{ provider: 'test', model: 'x', name: 'Test', costPer1MTokens: 7.5 }],
+    },
+  };
+  const merged = mergeConfig(raw);
+  assert.ok(merged.costEstimation);
+  assert.strictEqual(merged.costEstimation.customPricing.length, 1);
+  assert.strictEqual(merged.costEstimation.customPricing[0].costPer1MTokens, 7.5);
+});
+
+test('costEstimation config defaults to empty pricing', () => {
+  const merged = mergeConfig({});
+  assert.ok(merged.costEstimation);
+  assert.deepStrictEqual(merged.costEstimation.customPricing, []);
+});
+
+// ══════════════════════════════════════════════════
 console.log('');
 console.log('══════════════════════════════════════════════════');
 console.log(`  RESULTS: ${passed} passed, ${failed} failed`);

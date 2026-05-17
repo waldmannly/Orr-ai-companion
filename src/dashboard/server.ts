@@ -70,6 +70,10 @@ import {
 } from '../policy';
 import { collectPRData, generatePRComment, PRCommentRequest } from '../pr-bot';
 import { postOrUpdateComment, getPRBranch } from '../pr-bot/github';
+import {
+  getCostSummary, getCostRecommendations, getSessionCost,
+  getTodayCost, getAvailablePricing, estimateCost,
+} from '../cost';
 
 // SSE — broadcast events to connected dashboard clients
 const sseClients = new Set<express.Response>();
@@ -430,6 +434,37 @@ export function createDashboardServer(config: Config): express.Express {
 
   app.get('/api/projects/:name/tokens', (req, res) => {
     res.json({ tokens: getProjectTokens(req.params.name) });
+  });
+
+  // ── Cost Estimation API ──
+
+  app.get('/api/costs/today', (_req, res) => {
+    res.json(getTodayCost(config));
+  });
+
+  app.get('/api/costs/summary', (req, res) => {
+    const days = Math.min(Number(req.query.days) || 30, 365);
+    res.json(getCostSummary(config, days));
+  });
+
+  app.get('/api/costs/session/:id', (req, res) => {
+    const cost = getSessionCost(req.params.id, config);
+    if (!cost) return res.status(404).json({ error: 'Session not found' });
+    res.json(cost);
+  });
+
+  app.get('/api/costs/recommendations', (_req, res) => {
+    res.json(getCostRecommendations(config));
+  });
+
+  app.get('/api/costs/pricing', (_req, res) => {
+    res.json(getAvailablePricing(config));
+  });
+
+  app.get('/api/costs/estimate', (req, res) => {
+    const tokens = Number(req.query.tokens) || 0;
+    const provider = (req.query.provider as string) || 'vscode-copilot';
+    res.json(estimateCost(tokens, provider, config));
   });
 
   // ── Memory lineage API ──

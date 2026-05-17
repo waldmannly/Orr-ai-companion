@@ -97,6 +97,16 @@ export interface Config {
     action: 'warn' | 'kill';
   };
   prBot: PRBotConfig;
+  /** Cost estimation settings */
+  costEstimation: {
+    /** Override cost rates per provider ($/1M tokens blended) */
+    customPricing: Array<{
+      provider: string;
+      model: string;
+      name: string;
+      costPer1MTokens: number;
+    }>;
+  };
 }
 
 const DEFAULT_RULE: AlertRuleConfig = { enabled: true, minSeverity: 'warn' };
@@ -153,6 +163,9 @@ const DEFAULTS: Config = {
     includeAlerts: true,
     filterProviders: [],
   },
+  costEstimation: {
+    customPricing: [],
+  },
 };
 
 let configPath = '';
@@ -197,6 +210,7 @@ export function mergeConfig(raw: Record<string, unknown>): Config {
     dashboard: { ...DEFAULTS.dashboard, ...(raw.dashboard as Record<string, unknown> || {}) },
     retention: { ...DEFAULTS.retention, ...(raw.retention as Record<string, unknown> || {}) },
     prBot: { ...DEFAULTS.prBot, ...(raw.prBot as Record<string, unknown> || {}) },
+    costEstimation: { ...DEFAULTS.costEstimation, ...(raw.costEstimation as Record<string, unknown> || {}) },
   } as Config;
 }
 
