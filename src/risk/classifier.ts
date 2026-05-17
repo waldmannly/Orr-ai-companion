@@ -1,6 +1,7 @@
 import { TrackerEvent, RiskLevel, MemoryOperation } from '../parser/event-types';
 import { Config } from '../config';
 import { minimatch } from 'minimatch';
+import { checkSupplyChain } from './typosquat';
 
 export interface RiskSignal {
   rule: string;         // short identifier (e.g. 'force_push', 'sensitive_file')
@@ -190,6 +191,9 @@ export function classifyRiskWithReasons(event: TrackerEvent, config: Config): Ri
     if (/npm\s+(install|i|add|remove|uninstall|update)\b/.test(event.command) || /yarn\s+(add|remove|upgrade)\b/.test(event.command) || /pip\s+install\b/.test(event.command) || /cargo\s+(add|install)\b/.test(event.command)) {
       signals.push({ rule: 'dependency_mutation', level: 'warn', reason: 'AI agent is modifying project dependencies', danger: 'Dependency changes can introduce supply-chain vulnerabilities, license issues, or break existing functionality' });
     }
+    // Typosquatting & supply chain checks
+    const supplyChainSignals = checkSupplyChain(event.command);
+    signals.push(...supplyChainSignals);
   }
 
   // Environment variable access

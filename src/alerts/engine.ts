@@ -1,6 +1,7 @@
 import { TrackerEvent, Alert, RiskLevel } from '../parser/event-types';
 import { Config, AlertRuleConfig } from '../config';
 import { isSensitiveFile, detectInjectionPatterns } from '../risk/classifier';
+import { checkSupplyChain } from '../risk/typosquat';
 import { insertAlert } from '../storage/db';
 
 const SEVERITY_ORDER: RiskLevel[] = ['info', 'watch', 'warn', 'danger'];
@@ -197,6 +198,21 @@ export function evaluateAlerts(event: TrackerEvent, config: Config): Alert[] {
       if (url && /pastebin|hastebin|ghostbin|rentry/i.test(url)) {
         alerts.push(makeAlert(event, 'suspicious_fetch', 'warn',
           `🌐 Fetch to paste service: ${url.substring(0, 60)} — paste sites are commonly used for data exfiltration or injecting malicious instructions`));
+      }
+    }
+  }
+
+  // ── Supply chain: typosquatting & dependency confusion ──
+  if (event.command && shouldAlert(config, 'supply_chain', 'danger')) {
+    const supplySignals = checkSupplyChain(event.command);
+    for (const sig of supplySignals) {
+      const severity = sig.level === 'danger' ? 'danger' : 'warn';
+      if (sig.rule === 'typosquat') {
+        alerts.push(makeAlert(event, 'typosquat', severity as RiskLevel,
+          `🎭 Typosquatting: ${sig.reason} — ${sig.danger.substring(0, 120)}`));
+      } else {
+        alerts.push(makeAlert(event, sig.rule, severity as RiskLevel,
+          `📦 Supply chain: ${sig.reason}`));
       }
     }
   }
