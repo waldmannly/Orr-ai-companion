@@ -142,33 +142,53 @@ export function evaluateGuardrails(
   }
 
   // 4. Network allowlist
-  if (config.networkAllowlist.length > 0 && event.event_type === 'web_fetch') {
-    const url = event.command || event.summary || '';
-    try {
-      const hostname = new URL(url).hostname;
-      const allowed = config.networkAllowlist.some(domain =>
-        hostname === domain || hostname.endsWith('.' + domain)
-      );
-      if (!allowed) {
-        violations.push({
-          rule: 'network_blocked',
-          severity: 'danger',
-          message: `Outbound request to "${hostname}" not in allowlist`,
-          blocked: isBlocking,
-        });
-      }
-    } catch {
-      // Can't parse URL — check if summary contains any non-allowed domain
-      if (!config.networkAllowlist.some(d => url.includes(d))) {
-        violations.push({
-          rule: 'network_suspicious',
-          severity: 'warn',
-          message: `Network activity detected but couldn't verify against allowlist`,
-          blocked: false,
-        });
+  if (config.networkAllowlist.length > 0) {
+    // Check web_fetch events
+    if (event.event_type === 'web_fetch') {
+      const url = event.command || event.summary || '';
+      const violation = checkUrlAgainstAllowlist(url, config.networkAllowlist, isBlocking);
+      if (violation) violations.push(violation);
+    }
+    // Check terminal commands for curl/wget/fetch URLs
+    if (event.command && (event.event_type === 'terminal_command' || event.event_type === 'tool_call')) {
+      const urls = extractUrlsFromCommand(event.command);
+      for (const url of urls) {
+        const violation = checkUrlAgainstAllowlist(url, config.networkAllowlist, isBlocking);
+        if (violation) { violations.push(violation); break; }
       }
     }
   }
 
   return violations;
+}
+
+function checkUrlAgainstAllowlist(url: string, allowlist: string[], isBlocking: boolean): GuardrailViolation | null {
+  try {
+    const hostname = new URL(url).hostname;
+    const allowed = allowlist.some(domain =>
+      hostname === domain || hostname.endsWith('.' + domain)
+    );
+    if (!allowed) {
+      return {
+        rule: 'network_blocked',
+        severity: 'danger',
+        message: `Outbound request to "${hostname}" not in allowlist`,
+        blocked: isBlocking,
+      };
+    }
+  } catch {
+    // Not a valid URL — skip
+  }
+  return null;
+}
+
+function extractUrlsFromCommand(cmd: string): string[] {
+  const urls: string[] = [];
+  // Match URLs in curl/wget/fetch/Invoke-WebRequest commands
+  const urlRegex = /https?:\/\/[^\s'")\]}>]+/gi;
+  if (/\b(curl|wget|fetch|Invoke-WebRequest|iwr|http)\b/i.test(cmd)) {
+    const matches = cmd.match(urlRegex);
+    if (matches) urls.push(...matches);
+  }
+  return urls;
 }

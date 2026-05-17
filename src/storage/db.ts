@@ -400,6 +400,25 @@ function migrate() {
     CREATE INDEX IF NOT EXISTS idx_polmet_name ON policy_metrics(metric_name);
     CREATE INDEX IF NOT EXISTS idx_polmet_ts ON policy_metrics(timestamp);
   `);
+
+  // Session kill tracking
+  try {
+    db.prepare("SELECT killed_at FROM sessions LIMIT 0").run();
+  } catch {
+    db.exec(`ALTER TABLE sessions ADD COLUMN killed_at TEXT`);
+    db.exec(`ALTER TABLE sessions ADD COLUMN kill_reason TEXT`);
+  }
+
+  // Daily token usage tracking
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS daily_token_usage (
+      date TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      tokens INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (date, session_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_daily_tokens_date ON daily_token_usage(date);
+  `);
 }
 
 // ── Retention cleanup ──
@@ -689,6 +708,40 @@ export function getStatsForRange(startDate: string, endDate: string) {
 
 export function markSessionEnded(sessionId: string, endedAt: string) {
   db.prepare('UPDATE sessions SET ended_at = ? WHERE id = ? AND ended_at IS NULL').run(endedAt, sessionId);
+}
+
+// ── Session kill tracking ──
+
+export function markSessionKilled(sessionId: string, reason: string): void {
+  const now = new Date().toISOString();
+  db.prepare('UPDATE sessions SET killed_at = ?, kill_reason = ?, ended_at = COALESCE(ended_at, ?) WHERE id = ?')
+    .run(now, reason, now, sessionId);
+}
+
+export function isSessionKilledInDb(sessionId: string): boolean {
+  const row = db.prepare('SELECT killed_at FROM sessions WHERE id = ?').get(sessionId) as { killed_at: string | null } | undefined;
+  return !!row?.killed_at;
+}
+
+export function getKilledSessions(): Array<{ id: string; project_name: string; killed_at: string; kill_reason: string }> {
+  return db.prepare('SELECT id, project_name, killed_at, kill_reason FROM sessions WHERE killed_at IS NOT NULL ORDER BY killed_at DESC')
+    .all() as Array<{ id: string; project_name: string; killed_at: string; kill_reason: string }>;
+}
+
+// ── Daily token usage ──
+
+export function addDailyTokens(sessionId: string, tokens: number): void {
+  const date = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  db.prepare(`
+    INSERT INTO daily_token_usage (date, session_id, tokens) VALUES (?, ?, ?)
+    ON CONFLICT(date, session_id) DO UPDATE SET tokens = tokens + excluded.tokens
+  `).run(date, sessionId, tokens);
+}
+
+export function getDailyTokenTotal(): number {
+  const date = new Date().toISOString().slice(0, 10);
+  const row = db.prepare('SELECT SUM(tokens) as total FROM daily_token_usage WHERE date = ?').get(date) as { total: number | null };
+  return row?.total || 0;
 }
 
 // ── Composite alert detection ──

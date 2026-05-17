@@ -51,6 +51,10 @@ export interface SessionInfo {
   source_tool: string;
   /** Cumulative token count for the session */
   token_count?: number;
+  /** When this session was killed by enforcement */
+  killed_at?: string | null;
+  /** Why this session was killed */
+  kill_reason?: string | null;
 }
 
 export interface Alert {

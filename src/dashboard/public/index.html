@@ -348,6 +348,15 @@
     font-size: .72rem; cursor: pointer; transition: background .15s;
   }
   .replay-btn:hover { background: var(--accent); color: var(--bg); }
+  .btn-danger-sm {
+    margin-left: 6px; padding: 3px 10px; border-radius: var(--radius-sm);
+    border: 1px solid var(--red); background: transparent; color: var(--red);
+    font-size: .72rem; cursor: pointer; transition: background .15s;
+  }
+  .btn-danger-sm:hover { background: var(--red); color: var(--bg); }
+  .session-killed { opacity: 0.7; border-left: 3px solid var(--red) !important; }
+  .session-status.killed { color: var(--red); font-weight: 600; }
+  .badge-danger { background: rgba(255,80,80,0.15); color: var(--red); padding: 2px 8px; border-radius: var(--radius-sm); font-size: .7rem; font-weight: 600; }
   .replay-highlight { animation: replayPulse .6s ease-out; }
   @keyframes replayPulse {
     0% { background: rgba(99,180,255,.25); }
@@ -2453,6 +2462,16 @@ function connectSSE() {
     setConnStatus(true);
     if (state.currentPage === 'commands') loadCommands();
   });
+  es.addEventListener('session-killed', (e) => {
+    setConnStatus(true);
+    const data = JSON.parse(e.data);
+    showToast('danger', `🛑 Session killed: ${data.reason}`);
+    sendDesktopNotification('🛑 Session KILLED', data.reason, 'danger');
+    if (state.currentPage === 'sessions') loadSessions();
+    if (state.currentPage === 'timeline' && state.selectedSessionId === data.session_id) {
+      loadTimeline(state.selectedSessionId);
+    }
+  });
   es.onerror = () => {
     setConnStatus(false);
     es.close();
@@ -2997,12 +3016,13 @@ function renderSessions(list, projectFilter) {
   const header = projectFilter ? `<div class="section-title" style="margin-bottom:10px">Sessions for ${esc(projectFilter)} (${list.length})</div>` : '';
   document.getElementById('sessionsList').innerHTML = header + list.map(s => {
     const duration = fmtDuration(s.started_at, s.ended_at);
+    const killedBadge = s.killed_at ? '<span class="badge badge-danger" style="margin-left:6px">🛑 KILLED</span>' : '';
     return `
-    <div class="session-item" onclick="drillToSession('${esc(s.id)}','${escAttr(s.project_name || s.id.substring(0,8))}')">
+    <div class="session-item${s.killed_at ? ' session-killed' : ''}" onclick="drillToSession('${esc(s.id)}','${escAttr(s.project_name || s.id.substring(0,8))}')">
       <div class="session-heat ${heatClass(s.danger_count, s.warn_count)}"></div>
       <div class="session-info">
-        <div class="session-name">${sourceBadge(s.source_tool)} ${esc(s.project_name || s.id.substring(0,8))} <span class="session-status ${s.ended_at ? 'ended' : 'active'}">${s.ended_at ? 'ended' : '● live'}</span></div>
-        <div class="session-meta">${fmtRelativeTime(s.started_at)}${duration ? ' · ' + duration : ''}</div>
+        <div class="session-name">${sourceBadge(s.source_tool)} ${esc(s.project_name || s.id.substring(0,8))} <span class="session-status ${s.killed_at ? 'killed' : s.ended_at ? 'ended' : 'active'}">${s.killed_at ? '🛑 killed' : s.ended_at ? 'ended' : '● live'}</span>${killedBadge}</div>
+        <div class="session-meta">${fmtRelativeTime(s.started_at)}${duration ? ' · ' + duration : ''}${s.kill_reason ? ' · ' + esc(s.kill_reason) : ''}</div>
       </div>
       <div class="session-stats">
         <div class="session-stat">
@@ -3085,6 +3105,8 @@ async function loadTimeline(sessionId) {
         ${health.tokenCount ? `<span class="health-stat">~${(health.tokenCount/1000).toFixed(1)}k tok</span>` : ''}
         <span class="health-stat" style="color:${health.riskVelocity > 1 ? 'var(--red)' : 'var(--text-dim)'}">⚡${health.riskVelocity} risk/m</span>
         <button class="replay-btn" onclick="startReplay('${sessionId}')">▶ Replay</button>
+        ${!session.killed_at && !session.ended_at ? `<button class="btn-danger-sm" onclick="killSessionFromUI('${sessionId}')">🛑 Kill</button>` : ''}
+        ${session.killed_at ? `<span class="badge badge-danger">🛑 KILLED: ${esc(session.kill_reason || 'unknown')}</span>` : ''}
       </div>
     `;
     healthEl.style.display = '';
@@ -3708,6 +3730,22 @@ async function testNotif(type) {
 
 // ── Session Replay ──
 let replayTimer = null;
+async function killSessionFromUI(sessionId) {
+  if (!confirm('Kill this session? This will stop all log tailing and block further events.')) return;
+  const reason = prompt('Kill reason:', 'Manual kill from dashboard') || 'Manual kill from dashboard';
+  try {
+    const res = await api(`/api/sessions/${sessionId}/kill`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }) });
+    if (res?.ok) {
+      showToast('danger', `Session killed: ${reason}`);
+      loadTimeline(sessionId);
+    } else {
+      showToast('warn', res?.error || 'Failed to kill session');
+    }
+  } catch (e) {
+    showToast('danger', 'Error killing session: ' + e.message);
+  }
+}
+
 async function startReplay(sessionId) {
   if (replayTimer) { clearInterval(replayTimer); replayTimer = null; }
   const data = await api(`/api/sessions/${sessionId}/replay`);

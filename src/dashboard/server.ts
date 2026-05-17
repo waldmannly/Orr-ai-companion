@@ -59,6 +59,8 @@ import {
   getAutoResponseConfig, updateAutoResponseConfig,
   getAutoActions, getAutoResponseStats, pauseSession, resumeSession, reverseAction,
 } from '../response';
+import { getActiveWatcher } from '../watcher';
+import { getKilledSessions } from '../storage/db';
 import {
   getPolicy, getTier, loadPolicy, applyPolicy, checkPolicy,
   mergeGuardrails, isFieldLocked, hasPermission, requirePermission,
@@ -1024,6 +1026,24 @@ export function createDashboardServer(config: Config): express.Express {
     const action = reverseAction(Number(req.params.id), 'user');
     if (!action) return res.status(404).json({ error: 'Action not found or already reversed' });
     res.json(action);
+  });
+
+  // ── Session Kill (enforcement) ──
+
+  app.get('/api/sessions/killed', (_req, res) => {
+    res.json(getKilledSessions());
+  });
+
+  app.post('/api/sessions/:id/kill', (req, res) => {
+    const watcher = getActiveWatcher();
+    if (!watcher) return res.status(503).json({ error: 'Watcher not running' });
+    const sessionId = req.params.id;
+    const reason = req.body?.reason || 'Manual kill from dashboard';
+    if (watcher.isSessionKilled(sessionId)) {
+      return res.status(409).json({ error: 'Session already killed' });
+    }
+    watcher.killSession(sessionId, reason);
+    res.json({ ok: true, session_id: sessionId, reason });
   });
 
   // ── Policy Engine ──

@@ -3,13 +3,13 @@ import { LogTailer } from './log-tailer';
 import { SessionParserState } from '../parser';
 import { classifyRiskWithReasons, extractMemoryOp } from '../risk/classifier';
 import { evaluateAlerts, persistAlerts } from '../alerts/engine';
-import { initDb, upsertSession, insertEvent, insertMemoryOp, getSession, markSessionEnded, enforceRetention, insertAlert, getRecentSessionAlertBurst, upsertBaseline, getBaseline, insertGuardrailViolation, setSessionBranch, getTailerOffset, setTailerOffset } from '../storage/db';
+import { initDb, upsertSession, insertEvent, insertMemoryOp, getSession, markSessionEnded, enforceRetention, insertAlert, getRecentSessionAlertBurst, upsertBaseline, getBaseline, insertGuardrailViolation, setSessionBranch, getTailerOffset, setTailerOffset, markSessionKilled, addDailyTokens, getDailyTokenTotal } from '../storage/db';
 import { SessionInfo } from '../parser/event-types';
 import { LogProvider, TranscriptFile, getActiveProviders, createCustomProvider } from '../providers';
 import { broadcastSSE } from '../dashboard/server';
 import { dispatchAlertNotifications } from '../notifications';
 import { evaluateGuardrails } from '../guardrails';
-import { createIntervention } from '../guardrails/intervention';
+import { createIntervention, waitForResolution } from '../guardrails/intervention';
 import { updateTrustScore } from '../trust';
 import { appendToChain, initHashChain } from '../compliance';
 import { evaluatePackRules, loadPacksFromDirectory } from '../rules/packs';
@@ -19,6 +19,10 @@ import { upsertAgentNode, incrementAgentDanger, checkAgentAuthority } from '../a
 import { evaluateAutoResponse } from '../response';
 import { evaluatePluginRules } from '../plugins';
 import { execSync } from 'child_process';
+
+// Singleton reference for API access
+let activeWatcher: Watcher | null = null;
+export function getActiveWatcher(): Watcher | null { return activeWatcher; }
 
 export class Watcher {
   private config: Config;
@@ -33,6 +37,13 @@ export class Watcher {
   private sessionEndTimer: ReturnType<typeof setInterval> | null = null;
   /** Dedup: track recent event fingerprints per session to skip duplicates */
   private recentHashes = new Map<string, Set<string>>();
+  /** Sessions that have been killed — all future events are dropped */
+  private killedSessions = new Set<string>();
+  /** Map sessionId → filePaths for stop-tailing on kill */
+  private sessionFiles = new Map<string, Set<string>>();
+  /** Daily token counter (in-memory, backed by DB) */
+  private dailyTokens = 0;
+  private dailyTokenDate = new Date().toISOString().slice(0, 10);
 
   constructor(config?: Config) {
     this.config = config || loadConfig();
@@ -40,6 +51,7 @@ export class Watcher {
   }
 
   start() {
+    activeWatcher = this;
     console.log('[watcher] Initializing database...');
     initDb();
 
@@ -127,6 +139,15 @@ export class Watcher {
     // Track which provider owns this session
     this.sessionProvider.set(file.sessionId, provider);
 
+    // Track file → session mapping for kill enforcement
+    if (!this.sessionFiles.has(file.sessionId)) {
+      this.sessionFiles.set(file.sessionId, new Set());
+    }
+    this.sessionFiles.get(file.sessionId)!.add(file.filePath);
+
+    // Don't tail already-killed sessions
+    if (this.killedSessions.has(file.sessionId)) return;
+
     // Ensure session exists
     const existing = getSession(file.sessionId);
     if (!existing) {
@@ -170,7 +191,54 @@ export class Watcher {
     }
   }
 
+  /**
+   * Kill a session: stop tailing its files, mark it dead in DB, broadcast to dashboard.
+   * All future events from this session will be silently dropped.
+   */
+  killSession(sessionId: string, reason: string): void {
+    if (this.killedSessions.has(sessionId)) return; // Already killed
+
+    this.killedSessions.add(sessionId);
+
+    // Stop tailing all files for this session
+    const files = this.sessionFiles.get(sessionId);
+    if (files) {
+      for (const fp of files) {
+        this.tailer.stopTailing(fp);
+      }
+    }
+
+    // Mark killed in DB
+    markSessionKilled(sessionId, reason);
+
+    // Insert a danger alert
+    const now = new Date().toISOString();
+    insertAlert({
+      event_id: null,
+      session_id: sessionId,
+      timestamp: now,
+      alert_type: 'session_killed',
+      severity: 'danger',
+      message: `🛑 Session killed: ${reason}`,
+      acknowledged: false,
+    });
+
+    // Broadcast to dashboard
+    broadcastSSE('session-killed', { session_id: sessionId, reason, timestamp: now });
+
+    const project = getSession(sessionId)?.project_name || 'unknown';
+    console.log(`[watcher] 🛑 Session KILLED: ${project} (${sessionId.substring(0, 8)}) — ${reason}`);
+  }
+
+  /** Check if a session is killed */
+  isSessionKilled(sessionId: string): boolean {
+    return this.killedSessions.has(sessionId);
+  }
+
   private processLine(line: string, file: TranscriptFile) {
+    // ── ENFORCEMENT: Drop events from killed sessions ──
+    if (this.killedSessions.has(file.sessionId)) return;
+
     const provider = this.sessionProvider.get(file.sessionId);
     if (!provider) return;
 
@@ -209,19 +277,41 @@ export class Watcher {
     if (event.token_count) {
       const counters = this.sessionCounters.get(file.sessionId);
       if (counters) counters.tokens += event.token_count;
+
+      // Track daily tokens (reset at midnight)
+      const today = new Date().toISOString().slice(0, 10);
+      if (today !== this.dailyTokenDate) {
+        this.dailyTokens = 0;
+        this.dailyTokenDate = today;
+      }
+      this.dailyTokens += event.token_count;
+      addDailyTokens(file.sessionId, event.token_count);
+
       const budget = this.config.tokenBudget;
       if (budget && counters) {
+        // Per-session budget enforcement
         if (budget.maxPerSession > 0 && counters.tokens > budget.maxPerSession) {
           const msg = `Token budget exceeded: ${counters.tokens.toLocaleString()} / ${budget.maxPerSession.toLocaleString()} per session`;
           if (budget.action === 'kill') {
-            broadcastSSE('budget-exceeded', { session_id: file.sessionId, tokens: counters.tokens, limit: budget.maxPerSession, action: 'kill' });
-            insertAlert({ event_id: null, session_id: file.sessionId, timestamp: event.timestamp, alert_type: 'token_budget', severity: 'danger', message: msg, acknowledged: false });
+            // ACTUALLY KILL THE SESSION — stop processing all future events
+            this.killSession(file.sessionId, msg);
+            return; // Drop this event — session is dead
           } else {
             broadcastSSE('budget-warning', { session_id: file.sessionId, tokens: counters.tokens, limit: budget.maxPerSession });
             if (counters.tokens - event.token_count <= budget.maxPerSession) {
               // First time exceeding — alert once
               insertAlert({ event_id: null, session_id: file.sessionId, timestamp: event.timestamp, alert_type: 'token_budget', severity: 'warn', message: msg, acknowledged: false });
             }
+          }
+        }
+        // Per-day budget enforcement
+        if (budget.maxPerDay > 0 && this.dailyTokens > budget.maxPerDay) {
+          const msg = `Daily token budget exceeded: ${this.dailyTokens.toLocaleString()} / ${budget.maxPerDay.toLocaleString()} across all sessions`;
+          if (budget.action === 'kill') {
+            this.killSession(file.sessionId, msg);
+            return;
+          } else {
+            broadcastSSE('budget-warning', { session_id: file.sessionId, tokens: this.dailyTokens, limit: budget.maxPerDay, scope: 'daily' });
           }
         }
       }
@@ -323,6 +413,13 @@ export class Watcher {
       // Elevate risk level if guardrail fires
       if (violations.some(v => v.severity === 'danger') && event.risk_level !== 'danger') {
         event.risk_level = 'danger';
+      }
+
+      // ── ENFORCEMENT: Kill session if any guardrail violation has blocked: true ──
+      const blockedViolation = violations.find(v => v.blocked);
+      if (blockedViolation) {
+        this.killSession(file.sessionId, `Guardrail [${blockedViolation.rule}]: ${blockedViolation.message}`);
+        return; // Session is dead — stop processing
       }
     }
 
