@@ -2,7 +2,7 @@ import { Config, loadConfig } from '../config';
 import { LogTailer } from './log-tailer';
 import { SessionParserState } from '../parser';
 import { classifyRiskWithReasons, extractMemoryOp } from '../risk/classifier';
-import { evaluateAlerts, persistAlerts } from '../alerts/engine';
+import { evaluateAlerts, persistAlerts, BURSTY_ALERT_TYPES } from '../alerts/engine';
 import { initDb, upsertSession, insertEvent, insertMemoryOp, getSession, markSessionEnded, enforceRetention, insertAlert, getRecentSessionAlertBurst, upsertBaseline, getBaseline, insertGuardrailViolation, setSessionBranch, getTailerOffset, setTailerOffset, markSessionKilled, addDailyTokens, getDailyTokenTotal, vacuumDb } from '../storage/db';
 import { SessionInfo } from '../parser/event-types';
 import { LogProvider, TranscriptFile, getActiveProviders, createCustomProvider } from '../providers';
@@ -479,9 +479,11 @@ export class Watcher {
       }
     }
 
-    // Composite risk: if 3+ warn/danger alerts in 5 minutes, fire escalation alert
+    // Composite risk: if 5+ warn/danger alerts in 5 minutes, fire escalation alert
+    // Exclude known-bursty alert types (SSH, downloads) which naturally come in clusters
     if (event.risk_level === 'warn' || event.risk_level === 'danger') {
-      if (getRecentSessionAlertBurst(file.sessionId, 5, 5)) {
+      const nonBurstyAlerts = alerts.filter(a => !BURSTY_ALERT_TYPES.has(a.alert_type));
+      if (nonBurstyAlerts.length > 0 && getRecentSessionAlertBurst(file.sessionId, 5, 5)) {
         const existing = alerts.find(a => a.alert_type === 'alert_burst');
         if (!existing) {
           const burstAlert = {

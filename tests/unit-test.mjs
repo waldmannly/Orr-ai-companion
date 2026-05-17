@@ -16,7 +16,7 @@ const riskMod = await import('../dist/risk/classifier.js');
 const { classifyRisk, classifyRiskWithReasons, isSensitiveFile, detectInjectionPatterns, extractMemoryOp } = riskMod;
 
 const alertsMod = await import('../dist/alerts/engine.js');
-const { evaluateAlerts } = alertsMod;
+const { evaluateAlerts, clearAlertCooldowns, BURSTY_ALERT_TYPES } = alertsMod;
 
 const configMod = await import('../dist/config/index.js');
 const { loadConfig, mergeConfig, saveConfig } = configMod;
@@ -1011,6 +1011,7 @@ test('alert for deployment command (kubectl)', () => {
 });
 
 test('alert for ssh connection', () => {
+  clearAlertCooldowns();
   const ev = makeEvent({ event_type: 'terminal_command', command: 'ssh root@production-server' });
   const alerts = evaluateAlerts(ev, makeConfig());
   assert.ok(alerts.some(a => a.alert_type === 'ssh_remote'));
@@ -1023,6 +1024,7 @@ test('alert for data exfiltration (curl POST)', () => {
 });
 
 test('alert for suspicious download (.exe)', () => {
+  clearAlertCooldowns();
   const ev = makeEvent({ event_type: 'terminal_command', command: 'wget https://example.com/tool.exe' });
   const alerts = evaluateAlerts(ev, makeConfig());
   assert.ok(alerts.some(a => a.alert_type === 'suspicious_download'));
@@ -1043,6 +1045,31 @@ test('minSeverity filters out lower severity alerts', () => {
   const alerts = evaluateAlerts(ev, config);
   // suspicious_download produces a 'warn' severity alert, but minSeverity is 'danger', so it should be filtered
   assert.ok(!alerts.some(a => a.alert_type === 'suspicious_download'));
+});
+
+test('SSH alert dedup suppresses repeated alerts within cooldown', () => {
+  clearAlertCooldowns();
+  const ev1 = makeEvent({ event_type: 'terminal_command', command: 'ssh user@server1.com' });
+  const ev2 = makeEvent({ event_type: 'terminal_command', command: 'scp file.txt user@server2.com:/tmp/' });
+  const alerts1 = evaluateAlerts(ev1, makeConfig());
+  const alerts2 = evaluateAlerts(ev2, makeConfig());
+  assert.ok(alerts1.some(a => a.alert_type === 'ssh_remote'), 'first SSH fires');
+  assert.ok(!alerts2.some(a => a.alert_type === 'ssh_remote'), 'second SSH suppressed by dedup');
+});
+
+test('SSH alert dedup allows different sessions', () => {
+  clearAlertCooldowns();
+  const ev1 = makeEvent({ session_id: 'sess-A', event_type: 'terminal_command', command: 'ssh user@server.com' });
+  const ev2 = makeEvent({ session_id: 'sess-B', event_type: 'terminal_command', command: 'ssh user@server.com' });
+  const alerts1 = evaluateAlerts(ev1, makeConfig());
+  const alerts2 = evaluateAlerts(ev2, makeConfig());
+  assert.ok(alerts1.some(a => a.alert_type === 'ssh_remote'));
+  assert.ok(alerts2.some(a => a.alert_type === 'ssh_remote'));
+});
+
+test('BURSTY_ALERT_TYPES includes ssh_remote and suspicious_download', () => {
+  assert.ok(BURSTY_ALERT_TYPES.has('ssh_remote'));
+  assert.ok(BURSTY_ALERT_TYPES.has('suspicious_download'));
 });
 
 // ══════════════════════════════════════════════════

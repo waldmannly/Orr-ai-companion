@@ -5,6 +5,25 @@ import { insertAlert } from '../storage/db';
 
 const SEVERITY_ORDER: RiskLevel[] = ['info', 'watch', 'warn', 'danger'];
 
+// ── Alert dedup: suppress duplicate alert_type per session within cooldown window ──
+const DEDUP_COOLDOWN_MS = 30 * 60 * 1000; // 30 minutes
+// Key: "sessionId::alertType", Value: last fire timestamp
+const alertCooldowns = new Map<string, number>();
+
+// Alert types that are known to be bursty (e.g. SSH commands in a deploy script)
+export const BURSTY_ALERT_TYPES = new Set(['ssh_remote', 'suspicious_download']);
+
+function isDuplicate(sessionId: string, alertType: string): boolean {
+  const key = `${sessionId}::${alertType}`;
+  const last = alertCooldowns.get(key);
+  if (last && Date.now() - last < DEDUP_COOLDOWN_MS) return true;
+  alertCooldowns.set(key, Date.now());
+  return false;
+}
+
+// Exposed for testing
+export function clearAlertCooldowns() { alertCooldowns.clear(); }
+
 function ruleEnabled(config: Config, rule: string): boolean {
   const rc = (config.alertRules as Record<string, AlertRuleConfig>)?.[rule];
   return rc ? rc.enabled : true;
@@ -125,8 +144,10 @@ export function evaluateAlerts(event: TrackerEvent, config: Config): Alert[] {
     ];
     for (const sp of sshPatterns) {
       if (sp.pattern.test(event.command)) {
-        alerts.push(makeAlert(event, 'ssh_remote', 'danger',
-          `🔌 ${sp.msg}: ${event.command.substring(0, 80)} — remote access is outside local monitoring scope`));
+        if (!isDuplicate(event.session_id, 'ssh_remote')) {
+          alerts.push(makeAlert(event, 'ssh_remote', 'danger',
+            `🔌 ${sp.msg}: ${event.command.substring(0, 80)} — remote access is outside local monitoring scope`));
+        }
         break;
       }
     }
@@ -160,8 +181,10 @@ export function evaluateAlerts(event: TrackerEvent, config: Config): Alert[] {
     ];
     for (const dlp of dlPatterns) {
       if (dlp.pattern.test(event.command)) {
-        alerts.push(makeAlert(event, 'suspicious_download', 'warn',
-          `📥 ${dlp.msg}: ${event.command.substring(0, 80)} — verify the source is trusted`));
+        if (!isDuplicate(event.session_id, 'suspicious_download')) {
+          alerts.push(makeAlert(event, 'suspicious_download', 'warn',
+            `📥 ${dlp.msg}: ${event.command.substring(0, 80)} — verify the source is trusted`));
+        }
         break;
       }
     }
