@@ -239,6 +239,50 @@
   .badge-watch   { background: rgba(63,185,80,.12);  color: var(--green); }
   .badge-warn    { background: rgba(210,153,34,.15); color: var(--yellow); }
   .badge-danger  { background: rgba(248,81,73,.12);  color: var(--red); }
+  .badge-critical { background: rgba(200,0,255,.15); color: #e040fb; border: 1px solid rgba(200,0,255,.4); font-weight: 700; animation: criticalPulse 1.5s ease-in-out infinite; }
+
+  /* ── Critical / Threat Styles ─────────────────────── */
+  @keyframes criticalPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: .7; box-shadow: 0 0 8px rgba(200,0,255,.4); }
+  }
+  @keyframes threatPulseNav {
+    0%, 100% { background: #e040fb; transform: scale(1); }
+    50% { background: #ff1744; transform: scale(1.3); }
+  }
+  .threat-pulse { animation: threatPulseNav 1s ease-in-out infinite !important; }
+  .threat-banner {
+    background: linear-gradient(135deg, rgba(200,0,255,.15), rgba(255,23,68,.15));
+    border: 1px solid rgba(200,0,255,.5);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-bottom: 16px;
+    text-align: center;
+  }
+  .threat-banner h2 { color: #e040fb; margin: 0 0 4px; font-size: 1.1rem; }
+  .threat-banner p { color: var(--text-dim); margin: 0; font-size: .82rem; }
+  .threat-card {
+    background: var(--card);
+    border: 1px solid rgba(200,0,255,.4);
+    border-radius: var(--radius);
+    padding: 14px;
+    margin-bottom: 10px;
+    position: relative;
+    overflow: hidden;
+  }
+  .threat-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 4px;
+    height: 100%;
+    background: linear-gradient(180deg, #e040fb, #ff1744);
+  }
+  .threat-card .threat-type { color: #e040fb; font-weight: 700; font-size: .78rem; text-transform: uppercase; letter-spacing: .5px; }
+  .threat-card .threat-msg { color: var(--text); margin: 6px 0; font-size: .85rem; line-height: 1.4; }
+  .threat-card .threat-meta { color: var(--text-dim); font-size: .72rem; }
+  .toast.critical { background: linear-gradient(135deg, #4a0072, #7b1fa2); border: 1px solid #e040fb; }
+  .sev-pill.critical.active { background: rgba(200,0,255,.1); border-color: #e040fb; color: #e040fb; }
 
   /* ── Timeline ────────────────────────────────────── */
   .timeline { position: relative; padding-left: 24px; }
@@ -1697,6 +1741,11 @@
       <span class="nav-badge" id="securityBadgeSidebar" style="display:none;"></span>
       Security
     </button>
+    <button class="sidebar-nav-item" data-page="threats">
+      <span class="sidebar-nav-icon">☠️</span>
+      <span class="nav-badge threat-pulse" id="threatsBadgeSidebar" style="display:none;"></span>
+      Threats
+    </button>
     <button class="sidebar-nav-item" data-page="memory">
       <span class="sidebar-nav-icon">🧠</span>Memory
     </button>
@@ -1819,6 +1868,11 @@
     <!-- PAGE: SECURITY -->
     <div class="page" id="page-security">
       <div id="securityContent"><div class="skeleton"></div><div class="skeleton"></div></div>
+    </div>
+
+    <!-- PAGE: THREATS -->
+    <div class="page" id="page-threats">
+      <div id="threatsContent"><div class="skeleton"></div></div>
     </div>
 
     <!-- PAGE: MEMORY -->
@@ -1944,6 +1998,11 @@
       <span class="bottom-nav-icon">🛡️</span>
       <span class="nav-badge" id="securityBadge" style="display:none;"></span>
       Security
+    </button>
+    <button class="bottom-nav-item" data-page="threats">
+      <span class="bottom-nav-icon">☠️</span>
+      <span class="nav-badge threat-pulse" id="threatsBadge" style="display:none;"></span>
+      Threats
     </button>
     <button class="bottom-nav-item" data-page="memory">
       <span class="bottom-nav-icon">🧠</span>Memory
@@ -2398,8 +2457,13 @@ function connectSSE() {
     setConnStatus(true);
     const data = JSON.parse(e.data);
     showToast(data.severity, data.message);
-    // Desktop notification for warn/danger alerts
-    if (data.severity === 'danger' || data.severity === 'warn') {
+    // Desktop notification for critical/danger/warn alerts
+    if (data.severity === 'critical') {
+      sendDesktopNotification('☠️ CRITICAL THREAT', data.message, 'critical');
+      // Force navigate to threats page on critical
+      const badge = document.getElementById('threatsBadgeSidebar');
+      if (badge) { badge.style.display = 'inline-block'; badge.textContent = '!'; }
+    } else if (data.severity === 'danger' || data.severity === 'warn') {
       sendDesktopNotification(
         data.severity === 'danger' ? '🚨 DANGER Alert' : '⚠️ Warning',
         data.message,
@@ -2407,6 +2471,7 @@ function connectSSE() {
       );
     }
     if (state.currentPage === 'security') loadSecurity();
+    if (state.currentPage === 'threats') loadThreats();
     if (state.currentPage === 'home') {
       clearTimeout(sseDebounceTimer);
       sseDebounceTimer = setTimeout(() => loadHome(), 300);
@@ -2732,6 +2797,7 @@ function showPage(name, sessionId) {
   else if (name === 'sessions') loadSessions();
   else if (name === 'timeline') loadTimeline(sessionId || state.selectedSessionId);
   else if (name === 'security') loadSecurity();
+  else if (name === 'threats') loadThreats();
   else if (name === 'memory') loadMemory();
   else if (name === 'projects') loadProjects();
   else if (name === 'trust') loadTrust();
@@ -3313,6 +3379,87 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+// ── THREATS Page (Critical alerts only) ──
+async function loadThreats() {
+  const threats = await api('/api/threats');
+  const el = document.getElementById('threatsContent');
+
+  // Update badge
+  const badge = document.getElementById('threatsBadgeSidebar');
+  if (badge) {
+    if (threats && threats.length > 0) {
+      badge.textContent = threats.length;
+      badge.style.display = 'inline-block';
+    } else {
+      badge.style.display = 'none';
+    }
+  }
+
+  if (!threats || threats.length === 0) {
+    el.innerHTML = `
+      <div class="threat-banner" style="border-color:var(--green);background:rgba(63,185,80,.05);">
+        <h2 style="color:var(--green);">✅ No Active Threats</h2>
+        <p>No critical security threats detected. Your agents are operating safely.</p>
+      </div>
+      <div class="empty-state"><div class="icon">🛡️</div><div class="msg">All clear.<br>Critical threats like reverse shells, typosquats, crypto miners, and credential harvesters will appear here.</div></div>`;
+    return;
+  }
+
+  const unacked = threats.filter(t => !t.acknowledged).length;
+  const types = {};
+  for (const t of threats) {
+    types[t.alert_type] = (types[t.alert_type] || 0) + 1;
+  }
+
+  let html = `
+    <div class="threat-banner">
+      <h2>☠️ ${threats.length} CRITICAL THREAT${threats.length > 1 ? 'S' : ''} DETECTED</h2>
+      <p>These are confirmed malicious patterns — reverse shells, typosquats, credential harvesters, crypto miners, or known C2 frameworks.</p>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat-card" style="border-color:rgba(200,0,255,.4);">
+        <div class="stat-label">Active Threats</div>
+        <div class="stat-number" style="color:#e040fb;">${unacked}</div>
+      </div>
+      <div class="stat-card" style="border-color:rgba(200,0,255,.4);">
+        <div class="stat-label">Total Detected</div>
+        <div class="stat-number" style="color:#e040fb;">${threats.length}</div>
+      </div>
+      <div class="stat-card" style="border-color:rgba(200,0,255,.4);">
+        <div class="stat-label">Threat Types</div>
+        <div class="stat-number" style="color:#e040fb;">${Object.keys(types).length}</div>
+      </div>
+    </div>
+
+    <div style="margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;">
+      <div class="section-title" style="color:#e040fb;">Threat Log</div>
+      ${unacked > 0 ? '<button class="bulk-ack-btn" onclick="bulkAcknowledge();loadThreats();">✓ Acknowledge All</button>' : ''}
+    </div>`;
+
+  for (const t of threats) {
+    const typeLabel = t.alert_type === 'critical_threat' ? 'CONFIRMED THREAT' : t.alert_type === 'typosquat' ? 'TYPOSQUAT ATTACK' : t.alert_type.toUpperCase();
+    html += `
+      <div class="threat-card" onclick="drillAlertToEvent(${t.event_id || 0}, '${esc(t.session_id || '')}')">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span class="threat-type">${esc(typeLabel)}</span>
+          <span class="badge badge-critical">CRITICAL</span>
+        </div>
+        <div class="threat-msg">${esc(t.message)}</div>
+        <div class="threat-meta">
+          ${fmtTime(t.timestamp)} · Session: ${esc((t.session_id || '').substring(0, 12))}
+          ${!t.acknowledged ? ' · <span style="color:#ff1744;font-weight:600;">⚠ UNREVIEWED</span>' : ' · <span style="color:var(--green);">✓ Reviewed</span>'}
+        </div>
+        <div style="margin-top:8px;">
+          ${!t.acknowledged ? `<button class="alert-ack" onclick="event.stopPropagation();ackAlert(${t.id}, this);loadThreats();">✓ Mark Reviewed</button>` : ''}
+          ${t.session_id ? `<span style="font-size:.68rem;color:#e040fb;cursor:pointer;margin-left:8px;" onclick="event.stopPropagation();drillAlertToEvent(${t.event_id || 0}, '${esc(t.session_id)}')">→ Investigate session</span>` : ''}
+        </div>
+      </div>`;
+  }
+
+  el.innerHTML = html;
+}
+
 // ── SECURITY Page ──
 async function loadSecurity() {
   const alerts = await api('/api/alerts?limit=200');
@@ -3323,17 +3470,21 @@ async function loadSecurity() {
     return;
   }
 
+  const critical = alerts.filter(a => a.severity === 'critical').length;
   const danger = alerts.filter(a => a.severity === 'danger').length;
   const warn = alerts.filter(a => a.severity === 'warn').length;
   const unreviewed = alerts.filter(a => !a.acknowledged).length;
 
   let filtered = alerts;
-  if (state.securityFilter === 'danger') filtered = alerts.filter(a => a.severity === 'danger');
+  if (state.securityFilter === 'critical') filtered = alerts.filter(a => a.severity === 'critical');
+  else if (state.securityFilter === 'danger') filtered = alerts.filter(a => a.severity === 'danger');
   else if (state.securityFilter === 'warn') filtered = alerts.filter(a => a.severity === 'warn');
   else if (state.securityFilter === 'unreviewed') filtered = alerts.filter(a => !a.acknowledged);
 
   document.getElementById('securityContent').innerHTML = `
+    ${critical > 0 ? `<div class="threat-banner" onclick="showPage('threats')" style="cursor:pointer;margin-bottom:12px;"><h2>☠️ ${critical} Critical Threat${critical > 1 ? 's' : ''} — Click to investigate</h2></div>` : ''}
     <div class="stat-grid">
+      ${critical > 0 ? `<div class="stat-card" style="border-color:rgba(200,0,255,.5);"><div class="stat-label">Critical</div><div class="stat-number" style="color:#e040fb;">${critical}</div></div>` : ''}
       <div class="stat-card" ${danger > 0 ? 'style="border-color:rgba(248,81,73,.3);"' : ''}>
         <div class="stat-label">Danger</div>
         <div class="stat-number text-red">${danger}</div>
@@ -3351,6 +3502,7 @@ async function loadSecurity() {
     <div class="flex-between mb-12">
       <div class="severity-filter">
         <span class="sev-pill ${state.securityFilter === 'all' ? 'active' : ''}" onclick="state.securityFilter='all';loadSecurity()">All (${alerts.length})</span>
+        ${critical > 0 ? `<span class="sev-pill critical ${state.securityFilter === 'critical' ? 'active' : ''}" onclick="state.securityFilter='critical';loadSecurity()">☠️ Critical (${critical})</span>` : ''}
         <span class="sev-pill danger ${state.securityFilter === 'danger' ? 'active' : ''}" onclick="state.securityFilter='danger';loadSecurity()">🔴 Danger (${danger})</span>
         <span class="sev-pill warn ${state.securityFilter === 'warn' ? 'active' : ''}" onclick="state.securityFilter='warn';loadSecurity()">🟡 Warn (${warn})</span>
         <span class="sev-pill ${state.securityFilter === 'unreviewed' ? 'active' : ''}" onclick="state.securityFilter='unreviewed';loadSecurity()">Unreviewed (${unreviewed})</span>

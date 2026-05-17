@@ -4,7 +4,7 @@ import { isSensitiveFile, detectInjectionPatterns } from '../risk/classifier';
 import { checkSupplyChain } from '../risk/typosquat';
 import { insertAlert } from '../storage/db';
 
-const SEVERITY_ORDER: RiskLevel[] = ['info', 'watch', 'warn', 'danger'];
+const SEVERITY_ORDER: RiskLevel[] = ['info', 'watch', 'warn', 'danger', 'critical'];
 
 // ── Alert dedup: suppress duplicate alert_type per session within cooldown window ──
 const DEDUP_COOLDOWN_MS = 30 * 60 * 1000; // 30 minutes
@@ -206,13 +206,52 @@ export function evaluateAlerts(event: TrackerEvent, config: Config): Alert[] {
   if (event.command && shouldAlert(config, 'supply_chain', 'danger')) {
     const supplySignals = checkSupplyChain(event.command);
     for (const sig of supplySignals) {
-      const severity = sig.level === 'danger' ? 'danger' : 'warn';
       if (sig.rule === 'typosquat') {
-        alerts.push(makeAlert(event, 'typosquat', severity as RiskLevel,
-          `🎭 Typosquatting: ${sig.reason} — ${sig.danger.substring(0, 120)}`));
+        // Typosquats are CRITICAL — near-certain supply chain attack
+        alerts.push(makeAlert(event, 'typosquat', 'critical',
+          `🎭 TYPOSQUAT DETECTED: ${sig.reason} — ${sig.danger.substring(0, 120)}`));
       } else {
+        const severity = sig.level === 'danger' ? 'danger' : 'warn';
         alerts.push(makeAlert(event, sig.rule, severity as RiskLevel,
           `📦 Supply chain: ${sig.reason}`));
+      }
+    }
+  }
+
+  // ── CRITICAL: Known malicious patterns (confirmed threats) ──
+  if (event.command) {
+    const criticalPatterns: Array<{ pattern: RegExp; msg: string }> = [
+      // Reverse shells
+      { pattern: /\bbash\s+-i\s+>&\s*\/dev\/tcp\//i, msg: 'Reverse shell via /dev/tcp' },
+      { pattern: /\b(nc|ncat|netcat)\s+.*-e\s*(\/bin\/)?(ba)?sh/i, msg: 'Netcat reverse shell' },
+      { pattern: /\bpython[23]?\s+-c\s+.*socket.*connect/i, msg: 'Python reverse shell' },
+      { pattern: /\bperl\s+-e\s+.*socket.*INET/i, msg: 'Perl reverse shell' },
+      { pattern: /\bphp\s+-r\s+.*fsockopen/i, msg: 'PHP reverse shell' },
+      { pattern: /\brm\s+.*\/tmp\/f\s*;\s*mkfifo\s/i, msg: 'Named pipe reverse shell' },
+      // Crypto miners
+      { pattern: /\b(xmrig|minerd|cpuminer|cgminer|bfgminer|ethminer|nbminer)\b/i, msg: 'Cryptocurrency miner detected' },
+      { pattern: /\bstratum\+tcp:\/\//i, msg: 'Mining pool connection (stratum protocol)' },
+      // Credential harvesting
+      { pattern: /\bmimikatz\b/i, msg: 'Mimikatz credential harvester' },
+      { pattern: /\b(lazagne|credentialfileview|nirsoft)\b/i, msg: 'Known credential harvesting tool' },
+      { pattern: /\/etc\/shadow|SAM\s+SYSTEM|sekurlsa::logonpasswords/i, msg: 'Credential file exfiltration' },
+      // Persistence mechanisms
+      { pattern: /\bcrontab\s+-.*\|\s*(curl|wget|bash)/i, msg: 'Cron persistence with remote payload' },
+      { pattern: /\b(systemctl|launchctl)\s+(enable|load)\s+.*\.(service|plist)\s*$/i, msg: 'Service persistence installation' },
+      // Known C2 frameworks
+      { pattern: /\b(meterpreter|cobalt\s*strike|sliver|empire|covenant|havoc|brute\s*ratel)\b/i, msg: 'Known C2 framework component' },
+      // Encoded payload execution
+      { pattern: /\bpowershell\s+.*-e(nc(odedcommand)?)\s+[A-Za-z0-9+\/=]{40,}/i, msg: 'PowerShell encoded command (obfuscated payload)' },
+      { pattern: /\becho\s+[A-Za-z0-9+\/=]{50,}\s*\|\s*base64\s+-d\s*\|\s*(bash|sh|python)/i, msg: 'Base64-decoded payload execution' },
+      // Data destruction
+      { pattern: /\bdd\s+if=\/dev\/(zero|urandom)\s+of=\/dev\/[sh]d[a-z]/i, msg: 'Disk wipe command' },
+      { pattern: /\b(shred|wipe)\s+.*\/(etc|boot|home|root)/i, msg: 'Destructive wipe of critical system paths' },
+    ];
+    for (const cp of criticalPatterns) {
+      if (cp.pattern.test(event.command)) {
+        alerts.push(makeAlert(event, 'critical_threat', 'critical',
+          `☠️ CRITICAL THREAT: ${cp.msg} — "${event.command.substring(0, 100)}" — This is a known attack pattern. Machine may be compromised.`));
+        break; // One critical is enough
       }
     }
   }

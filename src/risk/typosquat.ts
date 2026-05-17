@@ -328,7 +328,7 @@ export function checkSupplyChain(command: string): RiskSignal[] {
     if (typosquat) {
       signals.push({
         rule: 'typosquat',
-        level: 'danger',
+        level: 'critical',
         reason: `Package "${pkg}": ${typosquat.reason}`,
         danger: `Typosquatted packages often contain malware that steals credentials, installs backdoors, or exfiltrates source code. The intended package is likely "${typosquat.target}".`,
       });

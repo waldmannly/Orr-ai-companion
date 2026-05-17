@@ -477,6 +477,12 @@ export class Watcher {
         broadcastSSE('alert', { severity: a.severity, message: a.message, session_id: a.session_id, event_id: eventId });
         dispatchAlertNotifications(a).catch(() => {});
       }
+
+      // CRITICAL: Auto-kill session on critical threats (confirmed malicious)
+      const criticalAlert = alerts.find(a => a.severity === 'critical');
+      if (criticalAlert && !this.killedSessions.has(file.sessionId)) {
+        this.killSession(file.sessionId, `CRITICAL THREAT: ${criticalAlert.alert_type} — ${criticalAlert.message.substring(0, 100)}`);
+      }
     }
 
     // Composite risk: if 5+ warn/danger alerts in 5 minutes, fire escalation alert

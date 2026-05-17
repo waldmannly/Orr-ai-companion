@@ -221,7 +221,13 @@ export function createDashboardServer(config: Config): express.Express {
     const limit = parseInt(req.query.limit as string) || 100;
     const severity = req.query.severity as string | undefined;
     const sessionId = req.query.session_id as string | undefined;
-    res.json(getAlerts(limit, severity as 'warn' | 'danger' | undefined, sessionId));
+    res.json(getAlerts(limit, severity as 'warn' | 'danger' | 'critical' | undefined, sessionId));
+  });
+
+  // Dedicated threats endpoint — critical alerts only
+  app.get('/api/threats', (req, res) => {
+    const limit = parseInt(req.query.limit as string) || 200;
+    res.json(getAlerts(limit, 'critical'));
   });
 
   app.post('/api/alerts/:id/acknowledge', (req, res) => {

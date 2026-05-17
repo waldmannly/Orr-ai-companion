@@ -285,6 +285,29 @@ export function classifyRiskWithReasons(event: TrackerEvent, config: Config): Ri
     }
   }
 
+  // ── CRITICAL: Known malicious patterns (confirmed threats) ──
+  if (event.command) {
+    const cmd = event.command;
+    const criticalPatterns: Array<{ pattern: RegExp; rule: string; reason: string; danger: string }> = [
+      { pattern: /\bbash\s+-i\s+>&\s*\/dev\/tcp\//i, rule: 'reverse_shell', reason: 'Reverse shell via /dev/tcp', danger: 'Attacker gains interactive shell access to this machine' },
+      { pattern: /\b(nc|ncat|netcat)\s+.*-e\s*(\/bin\/)?(ba)?sh/i, rule: 'reverse_shell', reason: 'Netcat reverse shell', danger: 'Attacker gains interactive shell access to this machine' },
+      { pattern: /\bpython[23]?\s+-c\s+.*socket.*connect/i, rule: 'reverse_shell', reason: 'Python reverse shell', danger: 'Attacker gains interactive shell access to this machine' },
+      { pattern: /\b(xmrig|minerd|cpuminer|cgminer|bfgminer|ethminer)\b/i, rule: 'crypto_miner', reason: 'Cryptocurrency miner detected', danger: 'Machine is being used for unauthorized crypto mining — indicates compromise' },
+      { pattern: /\bstratum\+tcp:\/\//i, rule: 'crypto_miner', reason: 'Mining pool connection', danger: 'Machine connecting to mining pool — confirmed crypto miner' },
+      { pattern: /\bmimikatz\b/i, rule: 'credential_harvester', reason: 'Mimikatz credential harvester', danger: 'Active credential theft tool — machine fully compromised' },
+      { pattern: /\b(meterpreter|cobalt\s*strike|sliver|empire|covenant|havoc)\b/i, rule: 'c2_framework', reason: 'C2 framework component', danger: 'Command-and-control framework — machine is under attacker control' },
+      { pattern: /\bpowershell\s+.*-e(nc(odedcommand)?)\s+[A-Za-z0-9+\/=]{40,}/i, rule: 'encoded_payload', reason: 'PowerShell encoded payload', danger: 'Obfuscated malicious payload execution — evasion technique' },
+      { pattern: /\becho\s+[A-Za-z0-9+\/=]{50,}\s*\|\s*base64\s+-d\s*\|\s*(bash|sh|python)/i, rule: 'encoded_payload', reason: 'Base64 payload execution', danger: 'Encoded payload decoded and executed — active attack' },
+      { pattern: /\bdd\s+if=\/dev\/(zero|urandom)\s+of=\/dev\/[sh]d[a-z]/i, rule: 'disk_wipe', reason: 'Disk wipe command', danger: 'Intentional data destruction — ransomware or sabotage' },
+    ];
+    for (const cp of criticalPatterns) {
+      if (cp.pattern.test(cmd)) {
+        signals.push({ rule: cp.rule, level: 'critical', reason: cp.reason, danger: cp.danger });
+        break;
+      }
+    }
+  }
+
   // Determine overall level from highest signal
   let level: RiskLevel = 'info';
   for (const s of signals) {
@@ -385,6 +408,6 @@ export function extractMemoryOp(event: TrackerEvent): MemoryOperation | null {
 }
 
 function escalate(current: RiskLevel, candidate: RiskLevel): RiskLevel {
-  const order: RiskLevel[] = ['info', 'watch', 'warn', 'danger'];
+  const order: RiskLevel[] = ['info', 'watch', 'warn', 'danger', 'critical'];
   return order.indexOf(candidate) > order.indexOf(current) ? candidate : current;
 }
