@@ -328,7 +328,10 @@ export class Watcher {
       }
     }
 
-    // Store event
+    // Store event (truncate raw_log for file_read events — saves ~15 MB/week)
+    if (event.event_type === 'file_read' && event.raw_log && event.raw_log.length > 200) {
+      event.raw_log = event.raw_log.substring(0, 200) + '… [truncated]';
+    }
     const eventId = insertEvent(event);
     event.id = eventId;
 
