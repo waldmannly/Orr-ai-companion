@@ -258,6 +258,32 @@ export function createDashboardServer(config: Config): express.Express {
 
   // Events
   app.get('/api/sessions/:id/events', (req, res) => {
+    const around = qstr(req.query.around);
+    if (around) {
+      // Fetch events centered around a specific event ID
+      const halfLimit = Math.floor(clampInt(req.query.limit as string, 50) / 2);
+      const db = getDb();
+      const pivot = db.prepare('SELECT timestamp FROM events WHERE id = ? AND session_id = ?').get(parseInt(around), req.params.id) as any;
+      if (!pivot) return res.json([]);
+      // Use direct SQL to get events around the timestamp
+      const rows = db.prepare(
+        `SELECT * FROM events WHERE session_id = ? AND timestamp >= ? ORDER BY timestamp ASC LIMIT ?`
+      ).all(req.params.id, pivot.timestamp, halfLimit * 2) as any[];
+      // Also get some before the pivot
+      const beforeRows = db.prepare(
+        `SELECT * FROM events WHERE session_id = ? AND timestamp < ? ORDER BY timestamp DESC LIMIT ?`
+      ).all(req.params.id, pivot.timestamp, halfLimit) as any[];
+      // Combine: before (reversed) + at/after
+      const combined = [...beforeRows.reverse(), ...rows];
+      // Deduplicate by id
+      const seen = new Set<number>();
+      const unique = combined.filter(r => { if (seen.has(r.id)) return false; seen.add(r.id); return true; });
+      return res.json(unique.map((r: any) => ({
+        ...r,
+        file_paths: (() => { try { const p = JSON.parse(r.file_paths || '[]'); return Array.isArray(p) ? p.filter((x: any) => typeof x === 'string') : []; } catch { return []; } })(),
+        parameters: r.parameters ? JSON.parse(r.parameters) : null,
+      })));
+    }
     const limit = clampInt(req.query.limit as string, 500);
     const offset = Math.max(parseInt(req.query.offset as string) || 0, 0);
     const risk = qstr(req.query.risk);

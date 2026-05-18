@@ -2703,18 +2703,44 @@ function drillToSessionFromProject(sessionId, projectName) {
 async function drillAlertToEvent(eventId, sessionId) {
   if (!sessionId) return;
   const ctx = { crumbs: [
-    { label: 'Security', action: "navTo('security')" },
-    { label: 'Alert → Event', action: '' },
+    { label: 'Threats', action: "showPage('threats')" },
+    { label: 'Investigate', action: '' },
   ] };
   navTo('timeline', ctx, sessionId);
-  // After loading, try to scroll to and highlight the event
-  await new Promise(r => setTimeout(r, 300));
-  const el = document.querySelector(`[data-event-id="${eventId}"]`);
+
+  // Poll for the event element (timeline loads async)
+  let el = null;
+  for (let i = 0; i < 20; i++) {
+    await new Promise(r => setTimeout(r, 150));
+    el = document.querySelector(`[data-event-id="${eventId}"]`);
+    if (el) break;
+  }
+
   if (el) {
     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     el.classList.add('expanded');
-    el.style.boxShadow = '0 0 0 2px var(--accent)';
-    setTimeout(() => el.style.boxShadow = '', 2000);
+    el.style.boxShadow = '0 0 0 2px #e040fb';
+    el.style.borderLeft = '3px solid #e040fb';
+    setTimeout(() => { el.style.boxShadow = ''; el.style.borderLeft = ''; }, 4000);
+  } else if (eventId) {
+    // Event not in the loaded batch — fetch it directly and show context
+    const event = await api(`/api/events/${eventId}`);
+    if (event) {
+      const nearby = await api(`/api/sessions/${sessionId}/events?around=${eventId}&limit=50`);
+      if (nearby && nearby.length) {
+        state.timelineEvents = nearby;
+        renderTimeline();
+        await new Promise(r => setTimeout(r, 100));
+        const found = document.querySelector(`[data-event-id="${eventId}"]`);
+        if (found) {
+          found.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          found.classList.add('expanded');
+          found.style.boxShadow = '0 0 0 2px #e040fb';
+          found.style.borderLeft = '3px solid #e040fb';
+          setTimeout(() => { found.style.boxShadow = ''; found.style.borderLeft = ''; }, 4000);
+        }
+      }
+    }
   }
 }
 
