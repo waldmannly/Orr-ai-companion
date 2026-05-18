@@ -23,7 +23,7 @@ When something breaks, you have no way to trace what happened. Orr fixes that.
 | **Monitoring** | Auto-discovers Copilot, Claude Code, Gemini CLI sessions; live SSE event stream; zero-config |
 | **Risk & Alerts** | 5 severity tiers (info → critical); 14+ alert rules; supply chain / typosquatting detection; alert dedup with configurable toggle |
 | **Threats** | Dedicated threat view for confirmed malicious activity — reverse shells, crypto miners, credential harvesters, C2, disk wipes |
-| **Guardrails** | Block dangerous commands; approval queue; auto-deny timeout; session kill on critical; token budgets; network allowlist |
+| **Guardrails** | Detect dangerous commands instantly; flag for review; session kill (stops monitoring); token budgets; network allowlist |
 | **Trust Scores** | Per-provider grades (A–F) based on historical behavior |
 | **Dashboard** | 23-page SPA with live updates, phone-sized desktop layout |
 | **Policy Engine** | Three-tier (individual → team → enterprise); strictest-wins merge; field-level locking |
@@ -120,7 +120,7 @@ See **[docs/USAGE.md](docs/USAGE.md)** for the full configuration reference with
 │  • Risk classification (5 levels)                │
 │  • Alert evaluation (14+ rule categories)        │
 │  • Supply chain / typosquatting detection        │
-│  • Guardrail enforcement + session kill          │
+│  • Guardrail detection + immediate alerts        │
 │  • Trust score updates                           │
 │  • Compliance hash chain                         │
 │  • Plugin & rule pack evaluation                 │

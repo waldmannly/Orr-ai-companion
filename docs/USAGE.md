@@ -60,10 +60,10 @@ The dashboard is a 23-page single-page app with live SSE updates. Navigate via t
 | **Memory** | 🧠 | AI memory reads/writes/deletes across user/project/global scopes |
 | **Projects** | 📁 | Per-project stats, session grouping, risk breakdown |
 | **Trust** | ⭐ | Provider trust scores (A–F), historical trend, comparison |
-| **Guardrails** | 🚧 | Rule violations, blocked actions, guardrail configuration |
+| **Guardrails** | 🚧 | Rule violations, flagged actions, guardrail configuration |
 | **Audit** | 📜 | Hash chain verification, evidence reports, signed exports |
 | **Prompts** | 💬 | Full prompt history, search, crash recovery context |
-| **Queue** | ⏸️ | Commands blocked and awaiting your approval/denial |
+| **Queue** | ⏸️ | Flagged commands logged for your review |
 | **Export** | 📤 | CSV/JSON export, incident reports, weekly summaries |
 | **Agents** | 🤖 | Sub-agent delegation trees, authority scopes, violations |
 | **Correlation** | 🔗 | Cross-session analysis, interleaved timelines |
@@ -152,7 +152,7 @@ Maintains curated lists of 200+ popular packages across ecosystems. Any install 
 
 ## Critical Threats
 
-The **Threats** page (☠️) shows only confirmed malicious activity. These fire at `critical` level and auto-kill the agent session:
+The **Threats** page (☠️) shows only confirmed malicious activity. These fire at `critical` level and trigger immediate session kill (stops monitoring):
 
 | Threat | Examples |
 |--------|----------|
@@ -166,7 +166,7 @@ The **Threats** page (☠️) shows only confirmed malicious activity. These fir
 
 When a critical threat fires:
 1. Desktop notification (forced)
-2. Session auto-killed immediately
+2. Session monitoring stopped immediately (agent still running — stop it manually)
 3. Alert appears on Threats page with pulsing nav badge
 4. SSE pushes update to all connected dashboards
 
@@ -174,21 +174,23 @@ When a critical threat fires:
 
 ## Guardrails
 
-Active intervention system — not just passive logging.
+Real-time detection and alerting for dangerous agent actions. Guardrails fire the instant a risky action is observed in the log stream and immediately notify you via desktop notification, SSE push, and dashboard alerts.
+
+> **Note:** Orr is a passive log tailer — it reads agent transcripts *after* actions are written. Guardrails detect and flag violations instantly, but cannot prevent execution. The agent continues running unless you manually stop it. Future versions may introduce middleware-based interception for true pre-execution blocking.
 
 | Feature | Description |
 |---------|-------------|
-| **Command blocking** | Dangerous commands get intercepted before execution |
-| **Approval queue** | High-risk actions wait for your explicit approval |
-| **Auto-deny timeout** | Unreviewed blocked commands auto-deny after timeout |
-| **Session kill** | Auto-terminate sessions on critical alerts |
-| **Token budgets** | Kill/warn when sessions exceed token limits |
-| **Network allowlist** | Block outbound network from `curl`/`wget` except allowed domains |
+| **Command detection** | Dangerous commands flagged instantly with desktop + dashboard alerts |
+| **Review queue** | Flagged actions logged for your review with full context |
+| **Auto-escalation** | Unreviewed flagged commands auto-escalate after timeout |
+| **Session kill** | Stops monitoring the session and marks it killed (agent process is not terminated) |
+| **Token budgets** | Alert/kill-monitor when sessions exceed token limits |
+| **Network allowlist** | Flag outbound network calls to non-allowed domains |
 | **Daily limits** | Cap total AI token spend per day |
 
 ### Session Kill on Critical
 
-When enabled, any `critical`-level alert immediately terminates the session. The agent is stopped before it can do more damage. Enable in config:
+When enabled, any `critical`-level alert immediately stops monitoring that session. The session is marked as killed in the database and no further events are processed. **Important:** this does not terminate the agent process itself — you must manually stop the agent (close the terminal, stop VS Code, etc.).
 
 ```json
 { "guardrails": { "sessionKill": { "enabled": true } } }
@@ -473,8 +475,8 @@ All settings in `config.json` with defaults:
 1. **Enable `memory_operations` rule** — track every AI memory write.
 2. **Enable hash chain verification** — prove logs haven't been tampered with.
 3. **Generate signed exports** for audit evidence.
-4. **Set `sessionKill: true`** — auto-terminate on critical threats.
-5. **Use network allowlist** — block all outbound except known-good domains.
+4. **Set `sessionKill: true`** — stop monitoring on critical threats (then manually kill the agent).
+5. **Use network allowlist** — flag all outbound except known-good domains.
 6. **Disable dedup on SSH** — in a local-only environment, every remote connection attempt matters.
 
 ### For Catching Bad Agents

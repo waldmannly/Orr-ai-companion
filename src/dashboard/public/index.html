@@ -2080,7 +2080,7 @@
   </div>
 </div>
 
-<!-- Intervention Panel (floating, appears on any page when blocked actions pending) -->
+<!-- Intervention Panel (floating, appears on any page when flagged actions pending) -->
 <div class="intervention-overlay" id="interventionOverlay"></div>
 
 <!-- Toast Notifications -->
@@ -2148,7 +2148,7 @@ function renderInterventions() {
       <div class="intervention-card" id="int-card-${int.id}">
         <div class="int-header">
           <span class="int-icon">🚨</span>
-          <span class="int-title">AGENT ACTION BLOCKED</span>
+          <span class="int-title">⚠️ RISKY ACTION DETECTED</span>
           <span class="int-timer" id="int-timer-${int.id}">--s</span>
         </div>
         <div class="int-body">${esc(int.message)}</div>
@@ -2212,7 +2212,7 @@ async function resolveIntervention(id, action) {
       } else {
         renderInterventions();
       }
-      showToast(action === 'approve' ? 'info' : 'warn', action === 'approve' ? 'Action allowed' : 'Action blocked');
+      showToast(action === 'approve' ? 'info' : 'warn', action === 'approve' ? 'Action acknowledged' : 'Action denied');
     }
   } catch (e) {
     console.error('Failed to resolve intervention', e);
@@ -2487,7 +2487,7 @@ function connectSSE() {
     interventionState.pending.set(data.id, data);
     renderInterventions();
     // Urgent desktop notification
-    sendDesktopNotification('🚨 ACTION BLOCKED — Approve or Deny', data.message, 'danger');
+    sendDesktopNotification('🚨 RISKY ACTION — Review Now', data.message, 'danger');
     // Play alert sound via AudioContext
     try {
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -2513,7 +2513,7 @@ function connectSSE() {
   es.addEventListener('command-blocked', (e) => {
     setConnStatus(true);
     if (state.currentPage === 'commands') loadCommands();
-    showToast('danger', '🛑 Command blocked — review in Queue');
+    showToast('danger', '🛑 Command flagged — review in Queue');
   });
   es.addEventListener('command-released', (e) => {
     setConnStatus(true);
@@ -4190,7 +4190,7 @@ async function loadGuardrails() {
           <div class="tl-event risk-${sevClass}">
             <div class="tl-time">${fmtTime(v.timestamp)}</div>
             <div class="tl-body">
-              <span class="badge badge-${sevClass}">${v.blocked ? '🚫 BLOCKED' : '⚠️ ' + v.severity}</span>
+              <span class="badge badge-${sevClass}">${v.blocked ? '🚫 FLAGGED' : '⚠️ ' + v.severity}</span>
               <span class="badge badge-muted">${v.rule}</span>
               <div class="tl-summary">${v.message}</div>
             </div>
@@ -4486,7 +4486,7 @@ async function loadCommands() {
         <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px;">
           <div style="text-align:center;flex:1;min-width:50px;">
             <div style="font-size:1.4rem;font-weight:800;color:var(--red);">${stats.blocked}</div>
-            <div style="font-size:.65rem;color:var(--text-dim);">Blocked</div>
+            <div style="font-size:.65rem;color:var(--text-dim);">Flagged</div>
           </div>
           <div style="text-align:center;flex:1;min-width:50px;">
             <div style="font-size:1.4rem;font-weight:800;color:var(--green);">${stats.approved}</div>
@@ -4506,14 +4506,14 @@ async function loadCommands() {
     // Tab bar
     html += `
       <div class="cmd-tab-bar">
-        <button class="cmd-tab ${commandsTab === 'blocked' ? 'active' : ''}" onclick="commandsTab='blocked';loadCommands()">🚫 Blocked (${blocked.length})</button>
+        <button class="cmd-tab ${commandsTab === 'blocked' ? 'active' : ''}" onclick="commandsTab='blocked';loadCommands()">🚫 Flagged (${blocked.length})</button>
         <button class="cmd-tab ${commandsTab === 'all' ? 'active' : ''}" onclick="commandsTab='all';loadCommands()">📋 All</button>
         <button class="cmd-tab ${commandsTab === 'history' ? 'active' : ''}" onclick="commandsTab='history';loadCommands()">📜 History</button>
       </div>`;
 
     if (commandsTab === 'blocked') {
       if (blocked.length === 0) {
-        html += '<div class="empty-state">No blocked commands right now. 🎉<br><span style="font-size:.75rem;">Commands caught by guardrails will appear here for review.</span></div>';
+        html += '<div class="empty-state">No flagged commands right now. 🎉<br><span style="font-size:.75rem;">Commands caught by guardrails will appear here for review.</span></div>';
       } else {
         // Kill-all button
         html += `<div style="text-align:right;margin-bottom:8px;"><button class="cmd-btn kill-all" onclick="denyAllCommands()">🛑 Deny All (${blocked.length})</button></div>`;
