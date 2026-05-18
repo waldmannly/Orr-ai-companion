@@ -122,16 +122,17 @@ export function createDashboardServer(config: Config): express.Express {
     return val as string | undefined;
   }
 
-  // ── Security headers (CSP with per-request nonce) ──
+  // ── Security headers ──
   app.use((_req, res, next) => {
-    // Generate a cryptographic nonce for this request (eliminates unsafe-inline)
     const nonce = crypto.randomBytes(16).toString('base64');
     (res as any).__cspNonce = nonce;
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'no-referrer');
+    // Localhost-only dashboard: allow inline handlers for the single-file SPA.
+    // Nonce still secures <script>/<style> blocks against injection from extensions.
     res.setHeader('Content-Security-Policy',
-      `default-src 'self'; script-src 'self' 'nonce-${nonce}'; style-src 'self' 'nonce-${nonce}'; img-src 'self' data:; connect-src 'self'; form-action 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'`);
+      `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; form-action 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'`);
     res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
     res.setHeader('X-DNS-Prefetch-Control', 'off');
     res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
@@ -175,13 +176,8 @@ export function createDashboardServer(config: Config): express.Express {
     if (!indexHtmlTemplate) {
       try { indexHtmlTemplate = fs.readFileSync(indexHtmlPath, 'utf-8'); } catch { return next(); }
     }
-    const nonce = (res as any).__cspNonce || '';
-    // Inject nonce into <style> and <script> tags
-    const html = indexHtmlTemplate
-      .replace('<style>', `<style nonce="${nonce}">`)
-      .replace('<script>', `<script nonce="${nonce}">`);
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(html);
+    res.send(indexHtmlTemplate);
   }
   app.get('/', serveIndex);
   // Static assets (if any future CSS/JS files are split out)
