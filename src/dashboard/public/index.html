@@ -4659,19 +4659,28 @@ async function loadExport() {
       <div class="card-title">📋 Incident Report</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:.85rem;">
         <span>Severity:</span><strong style="color:var(--${report.severity === 'critical' ? 'danger' : report.severity === 'high' ? 'warn' : 'accent'})">${report.severity || 'none'}</strong>
-        <span>Danger Events:</span><span>${report.danger_events?.length || 0}</span>
-        <span>Guardrail Violations:</span><span>${report.guardrail_violations?.length || 0}</span>
+        <span>Period:</span><span>${report.period ? fmtTime(report.period.start) + ' — ' + fmtTime(report.period.end) : 'last 7 days'}</span>
+        <span>Danger Events:</span><span>${report.dangerEvents?.length || 0}</span>
+        <span>Sessions w/ Danger:</span><span>${report.sessions?.length || 0}</span>
+        <span>Guardrail Violations:</span><span>${report.guardrailViolations?.length || 0} (${report.guardrailViolations?.filter(v => v.blocked).length || 0} blocked)</span>
       </div>
+      <div style="margin-top:8px;font-size:.85rem;"><strong>${esc(report.summary || '')}</strong></div>
+      ${report.dangerEvents?.length ? '<div style="margin-top:8px;font-size:.82rem;"><strong>Danger Events:</strong><div style="max-height:200px;overflow-y:auto;">' + report.dangerEvents.slice(0,20).map(e => '<div style="padding:3px 0;border-bottom:1px solid var(--border);"><span style="color:var(--muted)">' + fmtTime(e.timestamp) + '</span> <code>' + esc(e.type) + '</code> — ' + esc(e.summary || '') + '</div>').join('') + '</div></div>' : ''}
       ${report.recommendations?.length ? '<div style="margin-top:8px;font-size:.82rem;color:var(--muted)"><strong>Recommendations:</strong><ul style="margin:4px 0;padding-left:16px;">' + report.recommendations.map(r => '<li>' + esc(r) + '</li>').join('') + '</ul></div>' : ''}
     </div>`;
     h += `<div class="card">
       <div class="card-title">📈 Weekly Summary</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:.85rem;">
-        <span>Total Events:</span><span>${summary.stats?.total_events || 0}</span>
-        <span>Danger:</span><span style="color:var(--danger)">${summary.stats?.danger_events || 0}</span>
-        <span>Sessions:</span><span>${summary.stats?.sessions || 0}</span>
+        <span>Total Events:</span><span>${summary.totalEvents || 0}</span>
+        <span>Danger:</span><span style="color:var(--danger)">${summary.dangerEvents || 0}</span>
+        <span>Warnings:</span><span style="color:var(--warn)">${summary.warnEvents || 0}</span>
+        <span>Sessions:</span><span>${summary.totalSessions || 0}</span>
+        <span>Guardrail Fires:</span><span>${summary.guardrailFires || 0}</span>
+        <span>Commands Blocked:</span><span>${summary.commandsBlocked || 0}</span>
+        <span>Prompts Captured:</span><span>${summary.promptCount || 0}</span>
       </div>
-      ${summary.highlights?.length ? '<div style="margin-top:8px;font-size:.82rem;color:var(--muted)">' + summary.highlights.map(h => '<div>• ' + esc(h) + '</div>').join('') + '</div>' : ''}
+      ${summary.topProjects?.length ? '<div style="margin-top:8px;font-size:.82rem;"><strong>Top Projects:</strong>' + summary.topProjects.map(p => '<div style="padding:2px 0;">' + esc(p.name || 'unknown') + ' — ' + p.events + ' events' + (p.dangers > 0 ? ' <span style="color:var(--danger)">(' + p.dangers + ' danger)</span>' : '') + '</div>').join('') + '</div>' : ''}
+      ${summary.highlights?.length ? '<div style="margin-top:8px;font-size:.82rem;color:var(--muted)">' + summary.highlights.map(x => '<div>• ' + esc(x) + '</div>').join('') + '</div>' : ''}
     </div>`;
     el.innerHTML = h;
   } catch { el.innerHTML = '<div class="empty-state">Failed to load export data</div>'; }
