@@ -228,8 +228,8 @@ export class Watcher {
   }
 
   /**
-   * Kill a session: stop tailing its files, mark it dead in DB, broadcast to dashboard.
-   * All future events from this session will be silently dropped.
+   * Drop a session: stop tailing its files, mark it dead in DB, broadcast to dashboard.
+   * All future events from this session will be silently ignored. Does NOT kill the agent process.
    */
   killSession(sessionId: string, reason: string): void {
     if (this.killedSessions.has(sessionId)) return; // Already killed
@@ -255,7 +255,7 @@ export class Watcher {
       timestamp: now,
       alert_type: 'session_killed',
       severity: 'danger',
-      message: `🛑 Session killed: ${reason}`,
+      message: `🛑 Session dropped (monitoring stopped): ${reason}`,
       acknowledged: false,
     });
 
@@ -263,7 +263,7 @@ export class Watcher {
     broadcastSSE('session-killed', { session_id: sessionId, reason, timestamp: now });
 
     const project = getSession(sessionId)?.project_name || 'unknown';
-    console.log(`[watcher] 🛑 Session KILLED: ${project} (${sessionId.substring(0, 8)}) — ${reason}`);
+    console.log(`[watcher] 🛑 Session DROPPED: ${project} (${sessionId.substring(0, 8)}) — ${reason}`);
   }
 
   /** Check if a session is killed */
@@ -503,7 +503,7 @@ export class Watcher {
         dispatchAlertNotifications(a).catch(() => {});
       }
 
-      // CRITICAL: Auto-kill session on critical threats (confirmed malicious)
+      // CRITICAL: Auto-drop session on critical threats (stop monitoring, does NOT kill agent process)
       const criticalAlert = alerts.find(a => a.severity === 'critical');
       if (criticalAlert && !this.killedSessions.has(file.sessionId)) {
         this.killSession(file.sessionId, `CRITICAL THREAT: ${criticalAlert.alert_type} — ${criticalAlert.message.substring(0, 100)}`);

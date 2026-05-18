@@ -2562,8 +2562,8 @@ function connectSSE() {
   es.addEventListener('session-killed', (e) => {
     setConnStatus(true);
     const data = JSON.parse(e.data);
-    showToast('danger', `🛑 Session killed: ${data.reason}`);
-    sendDesktopNotification('🛑 Session KILLED', data.reason, 'danger');
+    showToast('danger', `🛑 Session dropped: ${data.reason}`);
+    sendDesktopNotification('🛑 Session DROPPED', `Orr stopped monitoring. ${data.reason}`, 'danger');
     if (state.currentPage === 'sessions') loadSessions();
     if (state.currentPage === 'timeline' && state.selectedSessionId === data.session_id) {
       loadTimeline(state.selectedSessionId);
@@ -3160,12 +3160,12 @@ function renderSessions(list, projectFilter) {
   const header = projectFilter ? `<div class="section-title" style="margin-bottom:10px">Sessions for ${esc(projectFilter)} (${list.length})</div>` : '';
   document.getElementById('sessionsList').innerHTML = header + list.map(s => {
     const duration = fmtDuration(s.started_at, s.ended_at);
-    const killedBadge = s.killed_at ? '<span class="badge badge-danger" style="margin-left:6px">🛑 KILLED</span>' : '';
+    const killedBadge = s.killed_at ? '<span class="badge badge-danger" style="margin-left:6px">🛑 DROPPED</span>' : '';
     return `
     <div class="session-item${s.killed_at ? ' session-killed' : ''}" onclick="drillToSession('${escAttr(s.id)}','${escAttr(s.project_name || s.id.substring(0,8))}')">
       <div class="session-heat ${heatClass(s.danger_count, s.warn_count)}"></div>
       <div class="session-info">
-        <div class="session-name">${sourceBadge(s.source_tool)} ${esc(s.project_name || s.id.substring(0,8))} <span class="session-status ${s.killed_at ? 'killed' : s.ended_at ? 'ended' : 'active'}">${s.killed_at ? '🛑 killed' : s.ended_at ? 'ended' : '● live'}</span>${killedBadge}</div>
+        <div class="session-name">${sourceBadge(s.source_tool)} ${esc(s.project_name || s.id.substring(0,8))} <span class="session-status ${s.killed_at ? 'killed' : s.ended_at ? 'ended' : 'active'}">${s.killed_at ? '🛑 dropped' : s.ended_at ? 'ended' : '● live'}</span>${killedBadge}</div>
         <div class="session-meta">${fmtRelativeTime(s.started_at)}${duration ? ' · ' + duration : ''}${s.kill_reason ? ' · ' + esc(s.kill_reason) : ''}</div>
       </div>
       <div class="session-stats">
@@ -3250,8 +3250,8 @@ async function loadTimeline(sessionId) {
         <span class="health-stat" style="color:${health.riskVelocity > 1 ? 'var(--red)' : 'var(--text-dim)'}">⚡${health.riskVelocity} risk/m</span>
         <button class="replay-btn" onclick="startReplay('${sessionId}')">▶ Replay</button>
         ${!session.killed_at && !session.ended_at ? `<button class="btn-jump" onclick="jumpToAgent('${esc(session.workspace || '')}','${esc(session.source_tool || '')}')">🔴 Jump to Agent</button>` : ''}
-        ${!session.killed_at && !session.ended_at ? `<button class="btn-danger-sm" onclick="killSessionFromUI('${sessionId}')">🛑 Kill</button>` : ''}
-        ${session.killed_at ? `<span class="badge badge-danger">🛑 KILLED: ${esc(session.kill_reason || 'unknown')}</span>` : ''}
+        ${!session.killed_at && !session.ended_at ? `<button class="btn-danger-sm" onclick="killSessionFromUI('${sessionId}')">🛑 Drop</button>` : ''}
+        ${session.killed_at ? `<span class="badge badge-danger">🛑 DROPPED: ${esc(session.kill_reason || 'unknown')}</span>` : ''}
       </div>
     `;
     healthEl.style.display = '';
@@ -3962,18 +3962,18 @@ async function testNotif(type) {
 // ── Session Replay ──
 let replayTimer = null;
 async function killSessionFromUI(sessionId) {
-  if (!confirm('Kill this session? This will stop all log tailing and block further events.')) return;
-  const reason = prompt('Kill reason:', 'Manual kill from dashboard') || 'Manual kill from dashboard';
+  if (!confirm('Drop this session? Orr will stop monitoring and ignore further events. (The agent process keeps running.)')) return;
+  const reason = prompt('Reason:', 'Manually dropped from dashboard') || 'Manually dropped from dashboard';
   try {
     const res = await api(`/api/sessions/${sessionId}/kill`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }) });
     if (res?.ok) {
-      showToast('danger', `Session killed: ${reason}`);
+      showToast('danger', `Session dropped: ${reason}`);
       loadTimeline(sessionId);
     } else {
-      showToast('warn', res?.error || 'Failed to kill session');
+      showToast('warn', res?.error || 'Failed to drop session');
     }
   } catch (e) {
-    showToast('danger', 'Error killing session: ' + e.message);
+    showToast('danger', 'Error dropping session: ' + e.message);
   }
 }
 
@@ -5027,7 +5027,7 @@ async function loadResponse() {
       <div class="card-title">⚙️ Auto-Response Config</div>
       <div style="font-size:.85rem;display:grid;grid-template-columns:1fr 1fr;gap:8px;">
         <label><input type="checkbox" id="arEnabled" ${config.enabled ? 'checked' : ''} onchange="updateAutoConfig()"> Enabled</label>
-        <label><input type="checkbox" id="arKill" ${config.killOnDanger ? 'checked' : ''} onchange="updateAutoConfig()"> Kill on Danger</label>
+        <label><input type="checkbox" id="arKill" ${config.killOnDanger ? 'checked' : ''} onchange="updateAutoConfig()"> Drop on Danger</label>
         <label>Block writes below trust: <input type="number" id="arBlockTrust" value="${config.blockWritesBelowTrust || 0}" min="0" max="100" style="width:50px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);" onchange="updateAutoConfig()"></label>
         <label>Pause after dangers: <input type="number" id="arPauseDangers" value="${config.pauseAfterDangers || 0}" min="0" style="width:50px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);" onchange="updateAutoConfig()"></label>
       </div>
