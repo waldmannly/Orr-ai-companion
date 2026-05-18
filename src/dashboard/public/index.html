@@ -2708,6 +2708,9 @@ async function drillAlertToEvent(eventId, sessionId) {
   ] };
   navTo('timeline', ctx, sessionId);
 
+  // If no event ID, just navigate to the session timeline
+  if (!eventId) return;
+
   // Poll for the event element (timeline loads async)
   let el = null;
   for (let i = 0; i < 20; i++) {
@@ -2749,7 +2752,17 @@ async function drillProjectSessions(projectName) {
     { label: 'Projects', action: "navTo('projects')" },
     { label: projectName, action: '' },
   ] };
-  navTo('sessions', ctx);
+  // Manual nav stack push + page switch (avoids loadSessions() race condition)
+  state.navStack.push({
+    page: state.currentPage,
+    sessionId: state.selectedSessionId,
+    context: state.navContext,
+    filter: { ...state.timelineFilter },
+  });
+  if (state.navStack.length > 20) state.navStack.shift();
+  state.navContext = ctx;
+  updateContextBar();
+  showPageDirect('sessions');
   // Load filtered sessions for this project
   const sessions = await api(`/api/projects/${encodeURIComponent(projectName)}/sessions`);
   renderSessions(sessions || [], projectName);
@@ -5174,7 +5187,7 @@ async function drillTaskGroup(taskGroup) {
     let h = `<button class="btn" onclick="loadLinkedSessions()" style="margin-bottom:12px;">← Back to all tasks</button>`;
     h += `<div class="card"><div class="card-title">📋 Sessions in "${esc(taskGroup)}" (${sessions.length})</div>`;
     for (const s of sessions) {
-      h += `<div style="padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer;" onclick="showPage('timeline','${escAttr(s.id)}')">
+      h += `<div style="padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer;" onclick="drillToSession('${escAttr(s.id)}','${escAttr(taskGroup)}')">
         <div style="display:flex;justify-content:space-between;">
           <div>
             <strong>${esc(s.id.slice(0, 16))}…</strong> <span class="badge">${esc(s.source_tool)}</span>
