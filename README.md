@@ -46,8 +46,8 @@ See the **[full feature list →](docs/USAGE.md)**
 ### Install & Run
 
 ```bash
-git clone https://github.com/your-username/orr-ai-companion.git
-cd orr-ai-companion
+git clone https://github.com/waldmannly/Orr-ai-companion.git
+cd Orr-ai-companion
 npm install
 npm run build
 npm start
