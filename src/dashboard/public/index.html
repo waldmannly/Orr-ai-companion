@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AL Companion Tracker</title>
+<title>Orr</title>
 <style>
   /* ── Reset & Base ─────────────────────────────────── */
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1815,7 +1815,7 @@
   <div class="header">
     <h1>
       <span class="logo">🛡</span>
-      AL Companion Tracker
+      Orr
       <span style="flex:1"></span>
       <span class="search-shortcut" onclick="openSearch()" title="Search events (Ctrl+K)">🔍 Ctrl+K</span>
     </h1>
@@ -2423,7 +2423,7 @@ function sendDesktopNotification(title, body, severity) {
   const n = new Notification(title, {
     body: body,
     icon: severity === 'danger' ? '🚨' : '⚠️',
-    tag: 'al-tracker-' + Date.now(),
+    tag: 'orr-' + Date.now(),
     silent: false,
   });
   n.onclick = () => { window.focus(); showPage('security'); n.close(); };

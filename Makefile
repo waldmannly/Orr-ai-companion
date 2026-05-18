@@ -3,7 +3,7 @@
 # Show available commands
 help:
 	@echo.
-	@echo   AL Companion Tracker
+	@echo   Orr
 	@echo   ====================
 	@echo   make install        Install dependencies
 	@echo   make build          Compile TypeScript

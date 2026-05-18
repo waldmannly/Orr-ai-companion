@@ -1,9 +1,9 @@
 {
-  "name": "al-companion-tracker",
-  "displayName": "AL Companion Tracker",
+  "name": "orr-ai-companion",
+  "displayName": "Orr",
   "description": "Real-time AI agent activity monitor — see what your AI coding agents are actually doing",
   "version": "1.0.0",
-  "publisher": "al-tracker",
+  "publisher": "orr",
   "engines": { "vscode": "^1.85.0" },
   "categories": ["Other", "Visualization"],
   "keywords": ["ai", "agent", "monitor", "security", "copilot", "claude", "gemini"],
@@ -12,36 +12,36 @@
   "icon": "icon.png",
   "contributes": {
     "commands": [
-      { "command": "al-tracker.showDashboard", "title": "AL Tracker: Open Dashboard" },
-      { "command": "al-tracker.showSessionActivity", "title": "AL Tracker: Show Current Session" },
-      { "command": "al-tracker.showFileActivity", "title": "AL Tracker: Show AI Activity for This File" },
-      { "command": "al-tracker.pauseSession", "title": "AL Tracker: Pause Current Session" },
-      { "command": "al-tracker.toggleDecorations", "title": "AL Tracker: Toggle Inline Decorations" }
+      { "command": "orr.showDashboard", "title": "AL Tracker: Open Dashboard" },
+      { "command": "orr.showSessionActivity", "title": "AL Tracker: Show Current Session" },
+      { "command": "orr.showFileActivity", "title": "AL Tracker: Show AI Activity for This File" },
+      { "command": "orr.pauseSession", "title": "AL Tracker: Pause Current Session" },
+      { "command": "orr.toggleDecorations", "title": "AL Tracker: Toggle Inline Decorations" }
     ],
     "configuration": {
-      "title": "AL Companion Tracker",
+      "title": "Orr",
       "properties": {
-        "al-tracker.serverUrl": {
+        "orr.serverUrl": {
           "type": "string",
           "default": "http://127.0.0.1:3847",
           "description": "URL of the AL Tracker server"
         },
-        "al-tracker.autoStart": {
+        "orr.autoStart": {
           "type": "boolean",
           "default": true,
           "description": "Automatically start the tracker server when VS Code opens"
         },
-        "al-tracker.showDecorations": {
+        "orr.showDecorations": {
           "type": "boolean",
           "default": true,
           "description": "Show inline decorations for AI-modified files"
         },
-        "al-tracker.showGutterIcons": {
+        "orr.showGutterIcons": {
           "type": "boolean",
           "default": true,
           "description": "Show gutter icons on AI-modified lines"
         },
-        "al-tracker.pollingInterval": {
+        "orr.pollingInterval": {
           "type": "number",
           "default": 3000,
           "description": "Status bar polling interval in milliseconds"
@@ -49,9 +49,9 @@
       }
     },
     "colors": [
-      { "id": "alTracker.dangerBackground", "description": "Background for danger-level AI modifications", "defaults": { "dark": "#ff444420", "light": "#ff444415" } },
-      { "id": "alTracker.warnBackground", "description": "Background for warn-level AI modifications", "defaults": { "dark": "#ffaa0020", "light": "#ffaa0015" } },
-      { "id": "alTracker.safeBackground", "description": "Background for safe AI modifications", "defaults": { "dark": "#44ff4410", "light": "#44ff4408" } }
+      { "id": "orr.dangerBackground", "description": "Background for danger-level AI modifications", "defaults": { "dark": "#ff444420", "light": "#ff444415" } },
+      { "id": "orr.warnBackground", "description": "Background for warn-level AI modifications", "defaults": { "dark": "#ffaa0020", "light": "#ffaa0015" } },
+      { "id": "orr.safeBackground", "description": "Background for safe AI modifications", "defaults": { "dark": "#44ff4410", "light": "#44ff4408" } }
     ]
   },
   "scripts": {

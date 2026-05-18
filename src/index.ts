@@ -15,7 +15,7 @@ if (args.length > 0 && !args[0].startsWith('-')) {
   // Default: start the full tracker (watcher + dashboard)
   console.log('');
   console.log('  ╔══════════════════════════════════════╗');
-  console.log('  ║   🛡  AL Companion Tracker           ║');
+  console.log('  ║   🛡  Orr           ║');
   console.log('  ║   AI Agent Activity Monitor           ║');
   console.log('  ╚══════════════════════════════════════╝');
   console.log('');

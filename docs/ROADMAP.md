@@ -1,4 +1,4 @@
-# AL Companion Tracker — Roadmap
+# Orr — Roadmap
 
 ## What's Built (v1)
 
@@ -18,7 +18,7 @@
 | Session health grades | A–F grading, risk velocity, events/min, replay mode |
 | Global metrics | Alert fatigue index, time-to-danger, project coverage |
 | VS Code extension | Status bar widget, inline decorations, gutter icons, command palette, auto-start server |
-| Rich CLI | `al-tracker status/replay/export/sessions/config/rules/autostart` |
+| Rich CLI | `orr status/replay/export/sessions/config/rules/autostart` |
 | Export & Reporting | JSON/CSV bulk export, incident reports, weekly summaries |
 | Sub-Agent Authority | Trust hierarchy, scope enforcement, delegation tree, authority violations |
 | Multi-Agent Correlation | Cross-session views, file conflict detection, interleaved timeline |

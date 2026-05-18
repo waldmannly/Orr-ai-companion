@@ -1,12 +1,12 @@
 /**
- * Auto-Start — Register AL Companion Tracker to start automatically.
+ * Auto-Start — Register Orr to start automatically.
  * 
  * Supports:
  *   - Windows: Startup folder shortcut via VBScript
  *   - macOS: launchd plist in ~/Library/LaunchAgents
  *   - Linux: systemd user service in ~/.config/systemd/user
  * 
- * Usage: al-tracker autostart [enable|disable|status]
+ * Usage: orr autostart [enable|disable|status]
  */
 
 import * as fs from 'fs';
@@ -14,7 +14,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { execSync } from 'child_process';
 
-const SERVICE_NAME = 'al-companion-tracker';
+const SERVICE_NAME = 'orr-ai-companion';
 
 export function setupAutoStart(action: 'enable' | 'disable' | 'status' = 'enable') {
   const platform = os.platform();
@@ -44,7 +44,7 @@ function getStartupDir(): string {
 
 function enableWindows() {
   const startupDir = getStartupDir();
-  const vbsPath = path.join(startupDir, 'al-tracker.vbs');
+  const vbsPath = path.join(startupDir, 'orr.vbs');
   const nodePath = process.execPath;
   const trackerPath = path.join(__dirname, '..', 'index.js');
 
@@ -57,7 +57,7 @@ WshShell.Run """${nodePath}"" ""${trackerPath}""", 0, False
 }
 
 function disableWindows() {
-  const vbsPath = path.join(getStartupDir(), 'al-tracker.vbs');
+  const vbsPath = path.join(getStartupDir(), 'orr.vbs');
   if (fs.existsSync(vbsPath)) {
     fs.unlinkSync(vbsPath);
     console.log('  ✓ Auto-start disabled\n');
@@ -76,7 +76,7 @@ function enableMacOS() {
   const plistPath = getLaunchAgentPath();
   const nodePath = process.execPath;
   const trackerPath = path.join(__dirname, '..', 'index.js');
-  const logPath = path.join(os.homedir(), '.al-tracker', 'daemon.log');
+  const logPath = path.join(os.homedir(), '.orr', 'daemon.log');
 
   const dir = path.dirname(logPath);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -130,7 +130,7 @@ function enableLinux() {
   const trackerPath = path.join(__dirname, '..', 'index.js');
 
   const unit = `[Unit]
-Description=AL Companion Tracker — AI Agent Activity Monitor
+Description=Orr — AI Agent Activity Monitor
 After=network.target
 
 [Service]
@@ -173,7 +173,7 @@ function checkStatus(platform: string) {
   let installed = false;
 
   if (platform === 'win32') {
-    installed = fs.existsSync(path.join(getStartupDir(), 'al-tracker.vbs'));
+    installed = fs.existsSync(path.join(getStartupDir(), 'orr.vbs'));
   } else if (platform === 'darwin') {
     installed = fs.existsSync(getLaunchAgentPath());
   } else {
@@ -184,6 +184,6 @@ function checkStatus(platform: string) {
     console.log('  ✓ Auto-start is enabled\n');
   } else {
     console.log('  ✗ Auto-start is not enabled\n');
-    console.log('  Run: al-tracker autostart enable\n');
+    console.log('  Run: orr autostart enable\n');
   }
 }

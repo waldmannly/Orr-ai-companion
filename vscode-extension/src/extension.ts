@@ -54,23 +54,23 @@ const fileActivityCache = new Map<string, { entries: FileActivityEntry[]; fetche
 // ── Activation ──
 
 export function activate(context: vscode.ExtensionContext) {
-  const config = vscode.workspace.getConfiguration('al-tracker');
+  const config = vscode.workspace.getConfiguration('orr');
 
   // Create decoration types
   dangerDecorationType = vscode.window.createTextEditorDecorationType({
-    backgroundColor: new vscode.ThemeColor('alTracker.dangerBackground'),
+    backgroundColor: new vscode.ThemeColor('orr.dangerBackground'),
     isWholeLine: true,
     overviewRulerColor: '#ff4444',
     overviewRulerLane: vscode.OverviewRulerLane.Right,
   });
   warnDecorationType = vscode.window.createTextEditorDecorationType({
-    backgroundColor: new vscode.ThemeColor('alTracker.warnBackground'),
+    backgroundColor: new vscode.ThemeColor('orr.warnBackground'),
     isWholeLine: true,
     overviewRulerColor: '#ffaa00',
     overviewRulerLane: vscode.OverviewRulerLane.Right,
   });
   safeDecorationType = vscode.window.createTextEditorDecorationType({
-    backgroundColor: new vscode.ThemeColor('alTracker.safeBackground'),
+    backgroundColor: new vscode.ThemeColor('orr.safeBackground'),
     isWholeLine: true,
   });
   gutterDecorationType = vscode.window.createTextEditorDecorationType({
@@ -80,8 +80,8 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Create status bar item
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 50);
-  statusBarItem.command = 'al-tracker.showSessionActivity';
-  statusBarItem.tooltip = 'AL Tracker — Click for session details';
+  statusBarItem.command = 'orr.showSessionActivity';
+  statusBarItem.tooltip = 'Orr — Click for session details';
   updateStatusBar({ sessionId: null, provider: 'none', grade: 'A', eventsLastMinute: 0, dangerCount: 0, tokenUsage: 0 });
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
@@ -93,15 +93,15 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Register commands
   context.subscriptions.push(
-    vscode.commands.registerCommand('al-tracker.showDashboard', () => openDashboard()),
-    vscode.commands.registerCommand('al-tracker.showSessionActivity', () => showSessionPanel(context)),
-    vscode.commands.registerCommand('al-tracker.showFileActivity', () => showFileActivityForCurrentFile(context)),
-    vscode.commands.registerCommand('al-tracker.pauseSession', () => pauseCurrentSession()),
-    vscode.commands.registerCommand('al-tracker.toggleDecorations', () => {
+    vscode.commands.registerCommand('orr.showDashboard', () => openDashboard()),
+    vscode.commands.registerCommand('orr.showSessionActivity', () => showSessionPanel(context)),
+    vscode.commands.registerCommand('orr.showFileActivity', () => showFileActivityForCurrentFile(context)),
+    vscode.commands.registerCommand('orr.pauseSession', () => pauseCurrentSession()),
+    vscode.commands.registerCommand('orr.toggleDecorations', () => {
       decorationsEnabled = !decorationsEnabled;
       if (!decorationsEnabled) clearAllDecorations();
       else refreshDecorations();
-      vscode.window.showInformationMessage(`AL Tracker decorations ${decorationsEnabled ? 'enabled' : 'disabled'}`);
+      vscode.window.showInformationMessage(`Orr decorations ${decorationsEnabled ? 'enabled' : 'disabled'}`);
     }),
   );
 
@@ -170,11 +170,11 @@ function findTrackerBinary(): string | null {
     path.join(__dirname, '..', '..', 'dist', 'index.js'),         // sibling
   ];
 
-  // Check if al-tracker is globally installed
+  // Check if orr is globally installed
   try {
     const { execSync } = require('child_process');
     const globalPath = execSync('npm root -g', { encoding: 'utf-8' }).trim();
-    candidates.push(path.join(globalPath, 'al-companion-tracker', 'dist', 'index.js'));
+    candidates.push(path.join(globalPath, 'orr-ai-companion', 'dist', 'index.js'));
   } catch { /* ignore */ }
 
   for (const c of candidates) {
@@ -201,9 +201,9 @@ async function pollStatus() {
 
 function updateStatusBar(status: SessionStatus | null) {
   if (!status || !status.sessionId) {
-    statusBarItem.text = '$(circle-slash) AL Tracker';
+    statusBarItem.text = '$(circle-slash) Orr';
     statusBarItem.backgroundColor = undefined;
-    statusBarItem.tooltip = 'AL Tracker — No active session (server may be offline)';
+    statusBarItem.tooltip = 'Orr — No active session (server may be offline)';
     return;
   }
 
@@ -222,7 +222,7 @@ function updateStatusBar(status: SessionStatus | null) {
   statusBarItem.text = `${icon} ${status.grade} · ${status.provider}`;
   statusBarItem.backgroundColor = gradeColors[status.grade];
   statusBarItem.tooltip = [
-    `AL Tracker — Grade: ${status.grade}`,
+    `Orr — Grade: ${status.grade}`,
     `Provider: ${status.provider}`,
     `Events/min: ${status.eventsLastMinute}`,
     `Danger events: ${status.dangerCount}`,
@@ -238,7 +238,7 @@ async function refreshDecorations() {
   const editor = vscode.window.activeTextEditor;
   if (!editor || !lastStatus.sessionId) return;
 
-  const config = vscode.workspace.getConfiguration('al-tracker');
+  const config = vscode.workspace.getConfiguration('orr');
   if (!config.get<boolean>('showDecorations')) return;
 
   const filePath = normalPath(editor.document.uri.fsPath);
@@ -286,7 +286,7 @@ async function refreshDecorations() {
   if (entries.length > 5) {
     hoverMsg.appendMarkdown(`*... and ${entries.length - 5} more events*\n\n`);
   }
-  hoverMsg.appendMarkdown(`[Open Full Activity](command:al-tracker.showFileActivity)`);
+  hoverMsg.appendMarkdown(`[Open Full Activity](command:orr.showFileActivity)`);
 
   const topLineRange = new vscode.Range(0, 0, 0, 0);
   const decoration: vscode.DecorationOptions = {
@@ -337,14 +337,14 @@ function clearAllDecorations() {
 // ── Webview Panels ──
 
 function openDashboard() {
-  const config = vscode.workspace.getConfiguration('al-tracker');
+  const config = vscode.workspace.getConfiguration('orr');
   const url = config.get<string>('serverUrl') || 'http://127.0.0.1:3847';
   vscode.env.openExternal(vscode.Uri.parse(url));
 }
 
 async function showSessionPanel(context: vscode.ExtensionContext) {
   const panel = vscode.window.createWebviewPanel(
-    'alTrackerSession', 'AL Tracker — Session', vscode.ViewColumn.Beside,
+    'orrSession', 'Orr — Session', vscode.ViewColumn.Beside,
     { enableScripts: true, retainContextWhenHidden: false },
   );
 
@@ -352,7 +352,7 @@ async function showSessionPanel(context: vscode.ExtensionContext) {
     const summary = await apiGet<SessionSummary>('/api/ide/session-summary');
     panel.webview.html = buildSessionHtml(summary);
   } catch {
-    panel.webview.html = buildErrorHtml('Cannot connect to AL Tracker server. Is it running?');
+    panel.webview.html = buildErrorHtml('Cannot connect to Orr server. Is it running?');
   }
 
   // Auto-refresh every 5s
@@ -375,7 +375,7 @@ async function showFileActivityForCurrentFile(context: vscode.ExtensionContext) 
 
   const filePath = normalPath(editor.document.uri.fsPath);
   const panel = vscode.window.createWebviewPanel(
-    'alTrackerFile', `AL Tracker — ${path.basename(filePath)}`, vscode.ViewColumn.Beside,
+    'orrFile', `Orr — ${path.basename(filePath)}`, vscode.ViewColumn.Beside,
     { enableScripts: true },
   );
 
@@ -383,7 +383,7 @@ async function showFileActivityForCurrentFile(context: vscode.ExtensionContext) 
     const entries = await apiGet<FileActivityEntry[]>(`/api/ide/file-activity?path=${encodeURIComponent(filePath)}&limit=100`);
     panel.webview.html = buildFileActivityHtml(filePath, entries);
   } catch {
-    panel.webview.html = buildErrorHtml('Cannot connect to AL Tracker server.');
+    panel.webview.html = buildErrorHtml('Cannot connect to Orr server.');
   }
 }
 
@@ -496,7 +496,7 @@ function wrapHtml(title: string, body: string): string {
 // ── HTTP Helpers ──
 
 function getServerUrl(): string {
-  return vscode.workspace.getConfiguration('al-tracker').get<string>('serverUrl') || 'http://127.0.0.1:3847';
+  return vscode.workspace.getConfiguration('orr').get<string>('serverUrl') || 'http://127.0.0.1:3847';
 }
 
 function apiGet<T>(path: string): Promise<T> {

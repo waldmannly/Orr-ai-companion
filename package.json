@@ -1,10 +1,10 @@
 {
-  "name": "al-companion-tracker",
+  "name": "orr-ai-companion",
   "version": "0.1.0-alpha",
   "description": "AI Agent Activity Monitor — track, audit, and visualize what AI coding agents are doing",
   "main": "dist/index.js",
   "bin": {
-    "al-tracker": "dist/index.js"
+    "orr": "dist/index.js"
   },
   "scripts": {
     "build": "tsc",

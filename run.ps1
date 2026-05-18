@@ -1,4 +1,4 @@
-# AL Companion Tracker — PowerShell launcher
+# Orr — PowerShell launcher
 # Usage:
 #   .\run.ps1           → build + start
 #   .\run.ps1 dev       → build + start + open browser

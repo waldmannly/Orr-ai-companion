@@ -1,8 +1,8 @@
-# 🛡 AL Companion Tracker
+# 🛡 Orr — AI Companion
 
 **AI Agent Activity Monitor** — Track, audit, and visualize what AI coding agents are doing on your machine in real time.
 
-AI agents run dozens of tool calls per session — reading files, writing code, executing commands, accessing the network. AL Companion Tracker watches all of it silently, flags risky actions, and gives you a dashboard to understand exactly what happened.
+AI agents run dozens of tool calls per session — reading files, writing code, executing commands, accessing the network. Orr watches all of it silently, flags risky actions, and gives you a dashboard to understand exactly what happened.
 
 > 📖 **New here?** Check out the **[Usage Guide](docs/USAGE.md)** for a full walkthrough of every feature and tips for getting the most out of the tracker.
 
@@ -12,7 +12,7 @@ AI agents run dozens of tool calls per session — reading files, writing code, 
 
 AI coding agents are unsupervised contractors with broad access to your system. They read your secrets, modify configs, run shell commands, and touch production branches — all in a few-minute session with zero audit trail.
 
-When something breaks, you have no way to trace what happened. AL Companion Tracker fixes that.
+When something breaks, you have no way to trace what happened. Orr fixes that.
 
 ---
 
@@ -46,8 +46,8 @@ See the **[full feature list →](docs/USAGE.md)**
 ### Install & Run
 
 ```bash
-git clone https://github.com/your-username/al-companion-tracker.git
-cd al-companion-tracker
+git clone https://github.com/your-username/orr-ai-companion.git
+cd orr-ai-companion
 npm install
 npm run build
 npm start

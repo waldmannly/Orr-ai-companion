@@ -1,5 +1,5 @@
 /**
- * Unit tests for AL Companion Tracker — targeting 95%+ code coverage.
+ * Unit tests for Orr — targeting 95%+ code coverage.
  * Run: npx c8 node tests/unit-test.mjs
  */
 import assert from 'node:assert/strict';
@@ -193,7 +193,7 @@ initDb(dbPath);
 
 console.log('');
 console.log('═══════════════════════════════════════════════════');
-console.log('  AL Companion Tracker — Unit Tests');
+console.log('  Orr — Unit Tests');
 console.log('═══════════════════════════════════════════════════');
 console.log('');
 

@@ -1,6 +1,6 @@
 # Usage Guide
 
-Everything AL Companion Tracker does, how to use it, and tips for getting the most out of it.
+Everything Orr does, how to use it, and tips for getting the most out of it.
 
 ---
 
@@ -294,19 +294,19 @@ Each channel has its own `minSeverity` — e.g., desktop at `danger`, Slack at `
 Full headless operation without the dashboard:
 
 ```bash
-al-tracker start                  # Start watcher + dashboard
-al-tracker status                 # Current session status
-al-tracker sessions               # List recent sessions
-al-tracker replay 10              # Replay last 10 minutes
-al-tracker export --format=csv    # Export events to CSV
-al-tracker export --format=json   # Export events to JSON
-al-tracker config                 # View current config
-al-tracker config key=value       # Update config value
-al-tracker rules list             # List installed rule packs
-al-tracker rules add ./pack.json  # Install a rule pack
-al-tracker compact                # Run database compaction (VACUUM)
-al-tracker autostart enable       # Auto-start on login
-al-tracker autostart status       # Check autostart status
+orr start                  # Start watcher + dashboard
+orr status                 # Current session status
+orr sessions               # List recent sessions
+orr replay 10              # Replay last 10 minutes
+orr export --format=csv    # Export events to CSV
+orr export --format=json   # Export events to JSON
+orr config                 # View current config
+orr config key=value       # Update config value
+orr rules list             # List installed rule packs
+orr rules add ./pack.json  # Install a rule pack
+orr compact                # Run database compaction (VACUUM)
+orr autostart enable       # Auto-start on login
+orr autostart status       # Check autostart status
 ```
 
 ---
@@ -347,12 +347,12 @@ Shareable detection rule sets for specific threat categories:
 
 ```bash
 # Install a community rule pack
-al-tracker rules add @community/supply-chain
-al-tracker rules add @community/aws-credential-leaks
-al-tracker rules add @community/ci-sabotage
+orr rules add @community/supply-chain
+orr rules add @community/aws-credential-leaks
+orr rules add @community/ci-sabotage
 
 # List installed packs
-al-tracker rules list
+orr rules list
 ```
 
 Rule packs are JSON files that define custom detection patterns. Create your own and share with your team.
@@ -522,7 +522,7 @@ SSE stream at `/api/events/stream` for real-time updates.
 
 - **Engine:** SQLite with WAL mode (fast concurrent reads)
 - **Location:** `./data/tracker.db`
-- **Compaction:** Auto-VACUUM on startup + manual via `al-tracker compact` or `POST /api/compact`
+- **Compaction:** Auto-VACUUM on startup + manual via `orr compact` or `POST /api/compact`
 - **Retention:** Auto-prunes events older than `retention.maxAgeDays` (default: 90)
 - **Size limit:** Warns when DB exceeds `retention.maxDbSizeMB` (default: 500 MB)
 - **Portable:** Single file, copy it anywhere, works on any OS
@@ -537,4 +537,4 @@ SSE stream at `/api/events/stream` for real-time updates.
 | No sessions detected | Ensure AI agents have been used — transcripts must exist on disk |
 | Too many alerts | Raise `minSeverity` on noisy rules, or disable them |
 | Missing events | Check `watchPaths` in config — the tracker may not know about custom log locations |
-| DB too large | Run `al-tracker compact` or lower `retention.maxAgeDays` |
+| DB too large | Run `orr compact` or lower `retention.maxAgeDays` |

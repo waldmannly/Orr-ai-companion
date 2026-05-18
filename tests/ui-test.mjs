@@ -1,4 +1,4 @@
-// AL Companion Tracker — Automated UI Test Suite
+// Orr — Automated UI Test Suite
 // Run with: node tests/ui-test.mjs
 // Requires the server to be running at http://127.0.0.1:3847
 
@@ -34,7 +34,7 @@ console.log('\n═══ 1. FRONTEND SERVING ═══');
 
 const page = await html('/');
 assert('Index HTML serves (200)', page.status === 200);
-assert('HTML has correct title', page.text.includes('<title>AL Companion Tracker</title>'));
+assert('HTML has correct title', page.text.includes('<title>Orr</title>'));
 assert('HTML has phone-frame layout', page.text.includes('class="phone-frame"'));
 assert('HTML has bottom nav', page.text.includes('class="bottom-nav"'));
 assert('HTML has 22 nav buttons', (page.text.match(/<button[^>]*class="sidebar-nav-item[^"]*"[^>]*data-page="/g) || []).length === 22);
@@ -59,7 +59,7 @@ assert('HTML has session search input', page.text.includes('id="sessionSearch"')
 assert('HTML has timeline search input', page.text.includes('id="timelineSearch"'));
 assert('HTML has risk filter button', page.text.includes('id="riskFilterBtn"'));
 assert('HTML has security badge', page.text.includes('id="securityBadge"'));
-assert('SPA fallback works', (await html('/any/route')).text.includes('AL Companion Tracker'));
+assert('SPA fallback works', (await html('/any/route')).text.includes('Orr'));
 
 // Dark theme CSS
 assert('CSS has dark theme variables', page.text.includes('--bg:') && page.text.includes('#0e1117'));

@@ -14,7 +14,7 @@
 ## Project Structure
 
 ```
-al-companion-tracker/
+orr-ai-companion/
 ├── src/
 │   ├── watcher/
 │   │   ├── index.ts              # Entry point — starts watching
@@ -318,7 +318,7 @@ Group sessions by workspace/project:
 - [ ] Search and filtering across all views
 - [ ] Alert acknowledgment workflow
 - [ ] Data retention and cleanup
-- [ ] One-command startup (`npx al-companion-tracker` or similar)
+- [ ] One-command startup (`npx orr-ai-companion` or similar)
 
 ## How a User Gains Understanding
 

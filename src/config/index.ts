@@ -25,7 +25,7 @@ export interface NotificationsConfig {
 export interface PRBotConfig {
   enabled: boolean;
   platform: 'github' | 'gitlab' | 'bitbucket';
-  /** PAT or app token — prefer AL_TRACKER_PR_TOKEN env var */
+  /** PAT or app token — prefer ORR_PR_TOKEN env var */
   token: string;
   /** Default repo (owner/repo). Can be overridden per request. */
   repo: string;

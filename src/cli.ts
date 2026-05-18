@@ -1,5 +1,5 @@
 /**
- * CLI — `al-tracker <command>`
+ * CLI — `orr <command>`
  * 
  * Subcommands:
  *   start     — start the tracker (default when no args)
@@ -47,9 +47,9 @@ export function runCli(args: string[]) {
 
 function cliHelp() {
   console.log(`
-  🛡  AL Companion Tracker — AI Agent Activity Monitor
+  🛡  Orr — AI Agent Activity Monitor
 
-  Usage: al-tracker <command> [options]
+  Usage: orr <command> [options]
 
   Commands:
     start              Start the tracker (watcher + dashboard)
@@ -79,16 +79,16 @@ function cliHelp() {
     autostart status             Check if auto-start is enabled
 
   Examples:
-    al-tracker start
-    al-tracker status
-    al-tracker replay 10
-    al-tracker export --format=csv --output=events.csv
-    al-tracker rules add ./my-rules.pack.json
+    orr start
+    orr status
+    orr replay 10
+    orr export --format=csv --output=events.csv
+    orr rules add ./my-rules.pack.json
 
   PR Comment:
-    al-tracker pr-comment --branch=feature/foo
-    al-tracker pr-comment --branch=feature/foo --pr=42 --repo=owner/repo
-    al-tracker pr-comment --pr=42 --repo=owner/repo   (auto-detects branch)
+    orr pr-comment --branch=feature/foo
+    orr pr-comment --branch=feature/foo --pr=42 --repo=owner/repo
+    orr pr-comment --pr=42 --repo=owner/repo   (auto-detects branch)
 `);
 }
 
@@ -100,7 +100,7 @@ function cliStart() {
 
   console.log('');
   console.log('  ╔══════════════════════════════════════╗');
-  console.log('  ║   🛡  AL Companion Tracker           ║');
+  console.log('  ║   🛡  Orr           ║');
   console.log('  ║   AI Agent Activity Monitor           ║');
   console.log('  ╚══════════════════════════════════════╝');
   console.log('');
@@ -143,7 +143,7 @@ async function cliStatus() {
     }
     console.log('');
   } catch {
-    console.error('  ✗ Cannot connect to tracker. Is it running? Try: al-tracker start\n');
+    console.error('  ✗ Cannot connect to tracker. Is it running? Try: orr start\n');
     process.exit(1);
   }
 }
@@ -246,7 +246,7 @@ function cliConfig(args: string[]) {
   const [keyPath, ...valParts] = args[0].split('=');
   const value = valParts.join('=');
   if (!value) {
-    console.error('  Usage: al-tracker config <key>=<value>\n');
+    console.error('  Usage: orr config <key>=<value>\n');
     process.exit(1);
   }
 
@@ -325,14 +325,14 @@ async function cliRules(args: string[]) {
     return;
   }
 
-  console.error('  Usage: al-tracker rules <list|add <file>|dir <directory>>\n');
+  console.error('  Usage: orr rules <list|add <file>|dir <directory>>\n');
   process.exit(1);
 }
 
 function cliAutoStart(args: string[]) {
   const action = (args[0] || 'status') as 'enable' | 'disable' | 'status';
   if (!['enable', 'disable', 'status'].includes(action)) {
-    console.error('  Usage: al-tracker autostart <enable|disable|status>\n');
+    console.error('  Usage: orr autostart <enable|disable|status>\n');
     process.exit(1);
   }
   setupAutoStart(action);
