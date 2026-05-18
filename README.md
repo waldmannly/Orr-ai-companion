@@ -173,7 +173,7 @@ npm run dev                # Build + start in one step
 | **[docs/USAGE.md](docs/USAGE.md)** | Full feature guide, tips, and configuration reference |
 | **[docs/VISION.md](docs/VISION.md)** | Product vision and adoption strategy |
 | **[docs/ROADMAP.md](docs/ROADMAP.md)** | Development roadmap |
-| **[docs/DATA-ANALYSIS.md](docs/DATA-ANALYSIS.md)** | Data analysis capabilities |
+| **[docs/BLOCKING-DESIGN.md](docs/BLOCKING-DESIGN.md)** | Agent intervention design (future blocking strategies) |
 
 ---
 
