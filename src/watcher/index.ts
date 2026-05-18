@@ -113,6 +113,8 @@ export class Watcher {
       // Watch for new sessions
       for (const basePath of logPaths) {
         provider.watchForNewSessions(basePath, (file) => {
+          // Skip if already tailing this session
+          if (this.sessionProvider.has(file.sessionId)) return;
           console.log(`[watcher] ${provider.icon} New session: ${file.projectName} (${file.sessionId})`);
           this.tailTranscript(file, provider);
         });

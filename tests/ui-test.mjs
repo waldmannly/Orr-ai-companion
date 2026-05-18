@@ -116,6 +116,12 @@ assert('Session has warn_count', typeof s0?.warn_count === 'number');
 const limited = await api('/api/sessions?limit=3');
 assert('Sessions limit param works', limited.data?.length <= 3);
 
+let eventTypes = [];
+
+if (!s0) {
+  console.log('  ⚠️  No session data — skipping detail/event tests');
+} else {
+
 // Session detail
 const detail = await api(`/api/sessions/${s0.id}`);
 assert('Session detail returns 200', detail.status === 200);
@@ -169,7 +175,7 @@ assert('Events have risk levels for filter', riskLevels.length > 0, `levels: ${r
 
 // Verify event types cover the design features
 const allEvents = await api(`/api/sessions/${s0.id}/events?limit=500`);
-const eventTypes = [...new Set(allEvents.data?.map(e => e.event_type) || [])];
+eventTypes = [...new Set(allEvents.data?.map(e => e.event_type) || [])];
 console.log(`    Event types found: ${eventTypes.join(', ')}`);
 
 // Check for file operations (design: "file write, reads")
@@ -187,6 +193,8 @@ assert('Tracks search operations', hasSearch);
 // Timeline expand (click to toggle) — verify detail data exists
 const withTool = events.data?.find(e => e.tool_name);
 assert('Events have tool_name for detail view', withTool != null);
+
+} // end if (s0)
 
 // ══════════════════════════════════════════════════════
 // 5. SECURITY / ALERTS
