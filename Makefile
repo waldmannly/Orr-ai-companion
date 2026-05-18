@@ -44,7 +44,7 @@ endif
 
 # Run unit tests
 test: build
-	npm run test:unit
+	npm test
 
 # Run tests with HTML coverage report
 test-coverage: build

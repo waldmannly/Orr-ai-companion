@@ -50,7 +50,7 @@ switch ($Command) {
         npx tsc
         if ($LASTEXITCODE -ne 0) { throw "Build failed" }
         Write-Step "Running tests..."
-        npm run test:unit
+        npm test
     }
     "coverage" {
         Write-Step "Building..."
