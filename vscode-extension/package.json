@@ -16,7 +16,8 @@
       { "command": "orr.showSessionActivity", "title": "AL Tracker: Show Current Session" },
       { "command": "orr.showFileActivity", "title": "AL Tracker: Show AI Activity for This File" },
       { "command": "orr.pauseSession", "title": "AL Tracker: Pause Current Session" },
-      { "command": "orr.toggleDecorations", "title": "AL Tracker: Toggle Inline Decorations" }
+      { "command": "orr.toggleDecorations", "title": "AL Tracker: Toggle Inline Decorations" },
+      { "command": "orr.jumpToAgent", "title": "AL Tracker: Jump to Agent" }
     ],
     "configuration": {
       "title": "Orr",

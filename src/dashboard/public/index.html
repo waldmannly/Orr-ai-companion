@@ -398,6 +398,14 @@
     font-size: .72rem; cursor: pointer; transition: background .15s;
   }
   .btn-danger-sm:hover { background: var(--red); color: var(--bg); }
+  .btn-jump {
+    margin-left: 6px; padding: 3px 10px; border-radius: var(--radius-sm);
+    border: 1px solid var(--accent); background: transparent; color: var(--accent);
+    font-size: .72rem; cursor: pointer; transition: background .15s;
+    animation: pulse-jump 2s infinite;
+  }
+  .btn-jump:hover { background: var(--accent); color: var(--bg); }
+  @keyframes pulse-jump { 0%, 100% { opacity: 1; } 50% { opacity: .6; } }
   .session-killed { opacity: 0.7; border-left: 3px solid var(--red) !important; }
   .session-status.killed { color: var(--red); font-weight: 600; }
   .badge-danger { background: rgba(255,80,80,0.15); color: var(--red); padding: 2px 8px; border-radius: var(--radius-sm); font-size: .7rem; font-weight: 600; }
@@ -2418,16 +2426,38 @@ function requestNotificationPermission() {
   }
 }
 
-function sendDesktopNotification(title, body, severity) {
+// ── Jump to Agent ──
+function jumpToAgent(workspace, sourceTool) {
+  if (!workspace) return;
+  if (sourceTool === 'vscode-copilot') {
+    // Open VS Code to the workspace folder — focuses that window
+    const uri = 'vscode://file/' + encodeURI(workspace.replace(/\\/g, '/'));
+    window.open(uri, '_blank');
+  } else {
+    // Terminal agents (claude-code, gemini-cli) — show toast with instructions
+    showToast('info', `Focus the terminal running ${sourceTool === 'claude-code' ? 'Claude Code' : sourceTool === 'gemini-cli' ? 'Gemini CLI' : sourceTool} in: ${workspace}`);
+  }
+}
+
+function sendDesktopNotification(title, body, severity, sessionCtx) {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   const n = new Notification(title, {
     body: body,
     icon: severity === 'danger' ? '🚨' : '⚠️',
     tag: 'orr-' + Date.now(),
     silent: false,
+    requireInteraction: severity === 'critical' || severity === 'danger',
   });
-  n.onclick = () => { window.focus(); showPage('security'); n.close(); };
-  setTimeout(() => n.close(), 10000);
+  n.onclick = () => {
+    window.focus();
+    if (sessionCtx && sessionCtx.workspace) {
+      jumpToAgent(sessionCtx.workspace, sessionCtx.source_tool);
+    } else {
+      showPage('security');
+    }
+    n.close();
+  };
+  setTimeout(() => n.close(), severity === 'critical' ? 30000 : 10000);
 }
 
 function connectSSE() {
@@ -2456,10 +2486,11 @@ function connectSSE() {
   es.addEventListener('alert', (e) => {
     setConnStatus(true);
     const data = JSON.parse(e.data);
+    const sessionCtx = { workspace: data.workspace, source_tool: data.source_tool };
     showToast(data.severity, data.message);
     // Desktop notification for critical/danger/warn alerts
     if (data.severity === 'critical') {
-      sendDesktopNotification('☠️ CRITICAL THREAT', data.message, 'critical');
+      sendDesktopNotification('☠️ CRITICAL THREAT', data.message, 'critical', sessionCtx);
       // Force navigate to threats page on critical
       const badge = document.getElementById('threatsBadgeSidebar');
       if (badge) { badge.style.display = 'inline-block'; badge.textContent = '!'; }
@@ -2467,7 +2498,8 @@ function connectSSE() {
       sendDesktopNotification(
         data.severity === 'danger' ? '🚨 DANGER Alert' : '⚠️ Warning',
         data.message,
-        data.severity
+        data.severity,
+        sessionCtx
       );
     }
     if (state.currentPage === 'security') loadSecurity();
@@ -2487,7 +2519,7 @@ function connectSSE() {
     interventionState.pending.set(data.id, data);
     renderInterventions();
     // Urgent desktop notification
-    sendDesktopNotification('🚨 RISKY ACTION — Review Now', data.message, 'danger');
+    sendDesktopNotification('🚨 RISKY ACTION — Review Now', data.message, 'danger', { workspace: data.workspace, source_tool: data.source_tool });
     // Play alert sound via AudioContext
     try {
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -3217,6 +3249,7 @@ async function loadTimeline(sessionId) {
         ${health.tokenCount ? `<span class="health-stat">~${(health.tokenCount/1000).toFixed(1)}k tok</span>` : ''}
         <span class="health-stat" style="color:${health.riskVelocity > 1 ? 'var(--red)' : 'var(--text-dim)'}">⚡${health.riskVelocity} risk/m</span>
         <button class="replay-btn" onclick="startReplay('${sessionId}')">▶ Replay</button>
+        ${!session.killed_at && !session.ended_at ? `<button class="btn-jump" onclick="jumpToAgent('${esc(session.workspace || '')}','${esc(session.source_tool || '')}')">🔴 Jump to Agent</button>` : ''}
         ${!session.killed_at && !session.ended_at ? `<button class="btn-danger-sm" onclick="killSessionFromUI('${sessionId}')">🛑 Kill</button>` : ''}
         ${session.killed_at ? `<span class="badge badge-danger">🛑 KILLED: ${esc(session.kill_reason || 'unknown')}</span>` : ''}
       </div>

@@ -103,6 +103,12 @@ export function activate(context: vscode.ExtensionContext) {
       else refreshDecorations();
       vscode.window.showInformationMessage(`Orr decorations ${decorationsEnabled ? 'enabled' : 'disabled'}`);
     }),
+    vscode.commands.registerCommand('orr.jumpToAgent', () => {
+      // Focus this VS Code window and show warning about risky action
+      vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
+      vscode.commands.executeCommand('workbench.panel.chat.view.copilot.focus');
+      vscode.window.showWarningMessage('⚠️ Orr detected a risky action! Review the agent output.');
+    }),
   );
 
   // Start polling

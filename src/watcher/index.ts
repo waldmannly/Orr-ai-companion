@@ -432,7 +432,7 @@ export class Watcher {
             actionTarget,
             provider: provider?.id || 'unknown',
           });
-          broadcastSSE('intervention-pending', intervention);
+          broadcastSSE('intervention-pending', { ...intervention, workspace: file.workspace, source_tool: file.providerId });
 
           // Persist blocked command to DB (survives crashes, supports edit+relaunch)
           const queued = queueBlockedCommand({
@@ -499,7 +499,7 @@ export class Watcher {
       persistAlerts(alerts);
       // Broadcast alert to SSE and dispatch notifications
       for (const a of alerts) {
-        broadcastSSE('alert', { severity: a.severity, message: a.message, session_id: a.session_id, event_id: eventId });
+        broadcastSSE('alert', { severity: a.severity, message: a.message, session_id: a.session_id, event_id: eventId, workspace: file.workspace, source_tool: file.providerId });
         dispatchAlertNotifications(a).catch(() => {});
       }
 
@@ -524,7 +524,7 @@ export class Watcher {
             acknowledged: false,
           };
           insertAlert(burstAlert);
-          broadcastSSE('alert', { severity: 'danger', message: burstAlert.message, session_id: file.sessionId, event_id: eventId });
+          broadcastSSE('alert', { severity: 'danger', message: burstAlert.message, session_id: file.sessionId, event_id: eventId, workspace: file.workspace, source_tool: file.providerId });
         }
       }
     }
