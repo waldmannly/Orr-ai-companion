@@ -173,10 +173,7 @@ npm run dev                # Build + start in one step
 | **[docs/USAGE.md](docs/USAGE.md)** | Full feature guide, tips, and configuration reference |
 | **[docs/VISION.md](docs/VISION.md)** | Product vision and adoption strategy |
 | **[docs/ROADMAP.md](docs/ROADMAP.md)** | Development roadmap |
-| **[docs/PR-COMMENT-BOT.md](docs/PR-COMMENT-BOT.md)** | PR comment bot — auto-post AI activity summaries on PRs |
 | **[docs/DATA-ANALYSIS.md](docs/DATA-ANALYSIS.md)** | Data analysis capabilities |
-| **[docs/SECURITY-AUDIT.md](docs/SECURITY-AUDIT.md)** | 6-round security audit trail |
-| **[docs/ALPHA-READINESS.md](docs/ALPHA-READINESS.md)** | Pre-ship readiness report |
 
 ---
 
